@@ -1,58 +1,142 @@
-import json
-from openai import AsyncOpenAI
+"""
+╔══════════════════════════════════════════════════════════════╗
+║  FASE 5: ClinicalAgent con RAG                              ║
+║                                                              ║
+║  FASE 3 (sin RAG):                                          ║
+║    chain = prompt | llm | parser                            ║
+║    run() → chain.ainvoke({"caso_clinico": "..."})           ║
+║                                                              ║
+║  FASE 5 (con RAG):                                          ║
+║    chain = {context: retriever | format, caso: passthrough} ║
+║            | prompt | llm | parser                          ║
+║    run() → chain.ainvoke("Paciente 62 años...")             ║
+║                                                              ║
+║  Diferencia clave: el agente ya NO responde solo con lo     ║
+║  que "sabe" el LLM — primero busca en docs/, recupera       ║
+║  los fragmentos más relevantes, y los inyecta en el prompt. ║
+║  Las respuestas están fundamentadas en TU base de           ║
+║  conocimiento, no en el entrenamiento del modelo.           ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
+
 from app.agents.base import BaseAgent
 from app.models.clinical import AgentOutput
 from app.core.config import get_settings
+from app.rag.retriever import get_retriever
+from app.rag.loader import format_docs
 
-# System prompt: le decimos al LLM exactamente qué rol tiene
-# y en qué formato tiene que responder.
-SYSTEM_PROMPT = """Eres un asistente clínico de IA especializado en análisis de casos médicos.
 
-Analiza el caso clínico y responde ÚNICAMENTE con un objeto JSON válido con esta estructura exacta:
-{
-  "agent_name": "ClinicalAgent",
-  "summary": "resumen breve del caso",
-  "findings": ["hallazgo 1", "hallazgo 2"],
-  "red_flags": ["señal de alerta 1"] o [],
-  "recommendations": ["recomendación 1"],
-  "confidence": 0.85,
-  "context_sources": []
-}
+# ─── System Prompt ─────────────────────────────────────────────────────────────
+#
+# Ahora tiene {context} — esa variable se rellena en tiempo de ejecución
+# con los fragmentos recuperados del vector store.
+# {format_instructions} sigue pre-rellenándose via .partial()
+#
+SYSTEM_PROMPT = """\
+Eres un asistente clínico de IA especializado en análisis de casos médicos.
+Analiza el caso clínico y responde ÚNICAMENTE con el objeto JSON solicitado.
+
+CONTEXTO RECUPERADO (guías y protocolos clínicos):
+{context}
+
+Usa el contexto anterior cuando sea relevante para fundamentar tu análisis.
 
 Reglas:
-- confidence es un número entre 0.0 y 1.0
-- red_flags solo incluye señales de peligro inmediato
-- No añadas texto fuera del JSON
-- Responde siempre en español"""
+- confidence: número entre 0.0 y 1.0
+- red_flags: solo señales de peligro inmediato
+- context_sources: indica las fuentes del contexto que usaste (ej: ["architecture/routing-rules.md"])
+- Responde siempre en español
+
+{format_instructions}"""
 
 
 class ClinicalAgent(BaseAgent):
     """
-    FASE 2: Implementación con OpenAI SDK directo.
-    Groq es compatible con este SDK — solo cambia base_url y api_key.
-    En Fase 3 migramos esto a LangChain para ver el contraste.
+    ClinicalAgent — Fase 5: LangChain LCEL + RAG.
+
+    Chain completa:
+      string input (caso_clinico)
+        ↓
+      {
+        "context":      retriever | format_docs,   ← busca docs relevantes
+        "caso_clinico": RunnablePassthrough(),      ← pasa el string sin tocar
+      }
+        ↓
+      prompt    ← recibe {"context": "...", "caso_clinico": "..."}
+        ↓
+      llm       ← genera respuesta informada por el contexto
+        ↓
+      parser    ← valida y estructura como AgentOutput
+
+    ¿Por qué el input es ahora un string y no un dict?
+    Porque el RETRIEVER necesita un string para buscar por similitud semántica.
+    Si le pasás un dict {"caso_clinico": "..."}, busca el dict como texto.
+    Con un string limpio, la búsqueda semántica funciona correctamente.
     """
 
     def __init__(self) -> None:
         settings = get_settings()
-        # Groq usa la misma interfaz que OpenAI — solo diferente base_url
-        self.client = AsyncOpenAI(
-            api_key=settings.groq_api_key,
-            base_url=settings.groq_base_url,
+
+        # ── Parser ───────────────────────────────────────────────────────────
+        parser = PydanticOutputParser(pydantic_object=AgentOutput)
+
+        # ── Prompt con {context} y {format_instructions} ─────────────────────
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT),
+            ("human", "{caso_clinico}"),
+        ]).partial(format_instructions=parser.get_format_instructions())
+
+        # ── LLM (multi-provider) ─────────────────────────────────────────────
+        if settings.llm_provider == "groq":
+            llm = ChatGroq(
+                api_key=settings.groq_api_key,
+                model=settings.llm_model,
+                temperature=0.2,
+            )
+        elif settings.llm_provider == "lmstudio":
+            llm = ChatOpenAI(
+                base_url=settings.lmstudio_base_url,
+                api_key="lm-studio",
+                model=settings.llm_model,
+                temperature=0.2,
+            )
+        else:
+            llm = ChatOpenAI(
+                api_key=settings.openai_api_key,
+                model=settings.llm_model,
+                temperature=0.2,
+            )
+
+        # ── Retriever ─────────────────────────────────────────────────────────
+        #
+        # get_retriever() se conecta a PGVector (necesita PostgreSQL corriendo).
+        # En tests se mockea para evitar la conexión real.
+        #
+        retriever = get_retriever(k=3)
+
+        # ── Chain RAG (LCEL) ──────────────────────────────────────────────────
+        #
+        # El dict {context, caso_clinico} se ejecuta EN PARALELO:
+        #   - retriever busca los 3 chunks más relevantes → format_docs → string
+        #   - RunnablePassthrough pasa el caso_clinico original sin cambios
+        # Ambos resultados llegan al prompt como variables.
+        #
+        self.chain = (
+            {
+                "context": retriever | format_docs,
+                "caso_clinico": RunnablePassthrough(),
+            }
+            | prompt
+            | llm
+            | parser
         )
-        self.model = settings.llm_model
 
     async def run(self, caso_clinico: str) -> AgentOutput:
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": caso_clinico},
-            ],
-            response_format={"type": "json_object"},  # fuerza JSON válido
-            temperature=0.2,  # bajo para respuestas consistentes y precisas
-        )
-
-        raw = response.choices[0].message.content
-        data = json.loads(raw)  # str → dict
-        return AgentOutput.model_validate(data)  # dict → Pydantic model validado
+        # Pasamos el string directamente — el retriever lo necesita para buscar
+        return await self.chain.ainvoke(caso_clinico)
