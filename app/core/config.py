@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"
     llm_model: str = "llama-3.3-70b-versatile"  # default para Groq
 
+    # Embeddings (Fase 4: RAG)
+    # text-embedding-3-small: modelo de OpenAI para generar embeddings
+    # 1536 dimensiones, buena calidad/precio, compatible con pgvector
+    embedding_model: str = "text-embedding-3-small"
+
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/clinical_ai"
 

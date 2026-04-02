@@ -10,6 +10,18 @@ dependencies = [
     "pydantic-settings==2.7.0",
     "python-dotenv==1.0.1",
     "openai>=2.30.0",
+    # Fase 3: LangChain Core + providers
+    # langchain-core: el motor de LCEL (el operador |, los Runnables)
+    # langchain-openai: ChatOpenAI para OpenAI y LM Studio
+    # langchain-groq: ChatGroq para Groq (gratis en dev)
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-groq>=0.2.0",
+    # Fase 4: RAG
+    # langchain-postgres: PGVector — vector store sobre PostgreSQL (no Pinecone, no Chroma)
+    # psycopg[binary]: driver sync de PostgreSQL que usa PGVector internamente
+    "langchain-postgres>=0.0.12",
+    "psycopg[binary]>=3.1.0",
 ]
 
 [project.optional-dependencies]
