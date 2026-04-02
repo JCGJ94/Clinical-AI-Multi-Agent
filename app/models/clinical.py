@@ -20,6 +20,7 @@ class TriageInput(BaseModel):
 class AnalyzeInput(BaseModel):
     caso_clinico: str = Field(min_length=10, description="Caso clínico completo")
     nivel_urgencia: NivelUrgencia | None = Field(default=None, description="Urgencia pre-calculada")
+    agentes_sugeridos: list[str] | None = Field(default=None, description="Agentes del triage previo")
 
 
 # ─── Outputs ─────────────────────────────────────────────────
@@ -41,6 +42,7 @@ class AgentOutput(BaseModel):
 
 
 class AnalyzeOutput(BaseModel):
+    case_id: int | None = Field(default=None, description="ID del caso persistido en DB")
     summary: str
     findings: list[str]
     red_flags: list[str]
@@ -48,3 +50,17 @@ class AnalyzeOutput(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     agentes_activados: list[str]
     agent_outputs: list[AgentOutput]
+
+
+class ClinicalCaseRead(BaseModel):
+    """Respuesta del GET /clinical-case/{case_id} — sin agent_outputs (verbose)."""
+    id: int
+    caso_clinico: str
+    agentes_sugeridos: list[str] | None
+    summary: str
+    findings: list[str]
+    red_flags: list[str]
+    recommendations: list[str]
+    confidence: float
+    agentes_activados: list[str]
+    created_at: str  # ISO 8601
