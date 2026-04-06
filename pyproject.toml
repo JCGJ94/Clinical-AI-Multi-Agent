@@ -18,8 +18,10 @@ dependencies = [
     "langchain-openai>=0.2.0",
     "langchain-groq>=0.2.0",
     # Fase 4: RAG
+    # langchain-text-splitters: herramienta para dividir documentos en chunks
     # langchain-postgres: PGVector — vector store sobre PostgreSQL (no Pinecone, no Chroma)
     # psycopg[binary]: driver sync de PostgreSQL que usa PGVector internamente
+    "langchain-text-splitters>=0.3.0",
     "langchain-postgres>=0.0.12",
     "psycopg[binary]>=3.1.0",
 ]
@@ -40,4 +42,5 @@ dev = [
     "pytest==8.3.4",
     "pytest-asyncio==0.24.0",
     "httpx==0.28.1",
+    "aiosqlite>=0.22.1",
 ]
