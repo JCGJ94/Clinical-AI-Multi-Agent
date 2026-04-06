@@ -35,11 +35,9 @@ Así el prompt recibe TANTO el contexto recuperado COMO la pregunta original.
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_groq import ChatGroq
-from langchain_openai import ChatOpenAI
 
 from app.rag.retriever import get_retriever
-from app.core.config import get_settings
+from app.core.llm import create_llm
 
 
 # ─── Prompt RAG ────────────────────────────────────────────────────────────────
@@ -101,29 +99,11 @@ def build_rag_chain(k: int = 3):
       - Documentos indexados (correr el script de indexación)
       - OPENAI_API_KEY para embeddings
     """
-    settings = get_settings()
     retriever = get_retriever(k=k)
 
-    # LLM — misma lógica multi-provider que en clinical.py
-    if settings.llm_provider == "groq":
-        llm = ChatGroq(
-            api_key=settings.groq_api_key,
-            model=settings.llm_model,
-            temperature=0.2,
-        )
-    elif settings.llm_provider == "lmstudio":
-        llm = ChatOpenAI(
-            base_url=settings.lmstudio_base_url,
-            api_key="lm-studio",
-            model=settings.llm_model,
-            temperature=0.2,
-        )
-    else:
-        llm = ChatOpenAI(
-            api_key=settings.openai_api_key,
-            model=settings.llm_model,
-            temperature=0.2,
-        )
+    # LLM — delegado a create_llm() (ver app/core/llm.py)
+    # temperature=0.2 — balance entre precisión y capacidad de síntesis en RAG
+    llm = create_llm(temperature=0.2)
 
     # ── La chain RAG ──────────────────────────────────────────────────────────
     #

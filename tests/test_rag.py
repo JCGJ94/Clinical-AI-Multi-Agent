@@ -12,8 +12,8 @@ Tests de los módulos RAG — Fase 4.
    - llamadas reales a la API de OpenAI (requiere API key y dinero)
    Esos son tests de integración — se corren manualmente o en CI con servicios.
 
-Estrategia de mocking para la RAG chain:
-   - Patcheamos ChatGroq (igual que en test_agents.py)
+Estrategia de mocking para la RAG chain (actualizada en Fase 11):
+   - Patcheamos create_llm (ya no ChatGroq directamente — ver app/core/llm.py)
    - Patcheamos get_retriever para devolver un retriever fake
    - El retriever fake devuelve Documents hardcodeados sin tocar la DB
 
@@ -124,19 +124,20 @@ def test_load_and_split_returns_more_chunks_than_files():
 # ─── Tests de la RAG Chain ─────────────────────────────────────────────────────
 
 @patch("app.rag.chain.get_retriever")
-@patch("app.rag.chain.ChatGroq")
-async def test_rag_chain_returns_string(MockChatGroq, mock_get_retriever):
+@patch("app.rag.chain.create_llm")
+async def test_rag_chain_returns_string(mock_create_llm, mock_get_retriever):
     """
     La RAG chain devuelve un string (salida del LLM).
 
     Mocks usados:
-    1. ChatGroq → fake LLM que devuelve respuesta hardcodeada
+    1. create_llm → fake LLM que devuelve respuesta hardcodeada
+       (desde Fase 11, chain.py usa create_llm en lugar de ChatGroq directamente)
     2. get_retriever → fake retriever que devuelve docs hardcodeados
     """
     from app.rag.chain import build_rag_chain
 
-    # 1. Fake LLM — igual que en test_agents.py
-    MockChatGroq.return_value = RunnableLambda(
+    # 1. Fake LLM — create_llm devuelve el LLM, así que mockeamos su retorno
+    mock_create_llm.return_value = RunnableLambda(
         lambda _: AIMessage(content="Basado en las guías clínicas, este caso sugiere síndrome coronario agudo.")
     )
 
@@ -164,8 +165,8 @@ async def test_rag_chain_returns_string(MockChatGroq, mock_get_retriever):
 
 
 @patch("app.rag.chain.get_retriever")
-@patch("app.rag.chain.ChatGroq")
-async def test_rag_chain_passes_context_to_llm(MockChatGroq, mock_get_retriever):
+@patch("app.rag.chain.create_llm")
+async def test_rag_chain_passes_context_to_llm(mock_create_llm, mock_get_retriever):
     """
     Verificamos que el retriever es invocado y su resultado llega al LLM.
 
@@ -181,7 +182,7 @@ async def test_rag_chain_passes_context_to_llm(MockChatGroq, mock_get_retriever)
         captured_inputs.append(str(messages))
         return AIMessage(content="Respuesta del agente clínico.")
 
-    MockChatGroq.return_value = RunnableLambda(fake_llm_call)
+    mock_create_llm.return_value = RunnableLambda(fake_llm_call)
 
     fake_docs = [
         Document(

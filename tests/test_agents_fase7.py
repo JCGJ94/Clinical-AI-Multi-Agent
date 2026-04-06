@@ -1,12 +1,24 @@
 """
 Tests de los agentes especialistas — Fase 7.
 
-Patrón idéntico a test_agents.py (Fase 5):
-  - dos @patch apilados: ChatGroq (outer) + get_retriever (inner)
-  - El retriever más INTERNO → primer parámetro
-  - El más EXTERNO → último parámetro
+Actualizado en Fase 11 (LLM Factory):
+  Antes: @patch("app.agents.cardiology.ChatGroq")
+  Ahora: @patch("app.agents.cardiology.create_llm")
 
-Los tres nuevos agentes (Cardiology, Pharmacology, Radiology) tienen exactamente
+¿Por qué cambió el mock?
+  Desde Fase 11, los agentes ya no importan ChatGroq directamente.
+  Importan create_llm de app.core.llm. Por tanto, hay que mockear la
+  referencia donde se usa — que es el módulo del agente, no app.core.llm.
+
+Seguimos mockeando get_retriever porque sigue siendo necesario para evitar
+la conexión real a PGVector.
+
+Patrón actualizado (dos @patch apilados):
+  @patch("app.agents.cardiology.create_llm")    ← outermost → segundo param
+  @patch("app.agents.cardiology.get_retriever") ← innermost → primer param
+  async def test_algo(mock_retriever, mock_create_llm):
+
+Los tres agentes (Cardiology, Pharmacology, Radiology) tienen exactamente
 la misma estructura RAG — mismo test pattern, distintos system prompts.
 """
 
@@ -50,11 +62,11 @@ def make_fake_retriever() -> RunnableLambda:
 
 # ─── CardiologyAgent ───────────────────────────────────────────────────────────
 
-@patch("app.agents.cardiology.ChatGroq")
+@patch("app.agents.cardiology.create_llm")
 @patch("app.agents.cardiology.get_retriever")
-async def test_cardiology_agent_returns_agent_output(mock_retriever, MockChatGroq):
+async def test_cardiology_agent_returns_agent_output(mock_retriever, mock_create_llm):
     """CardiologyAgent devuelve AgentOutput válido."""
-    MockChatGroq.return_value = make_fake_llm(make_agent_response("CardiologyAgent"))
+    mock_create_llm.return_value = make_fake_llm(make_agent_response("CardiologyAgent"))
     mock_retriever.return_value = make_fake_retriever()
 
     agent = CardiologyAgent()
@@ -68,11 +80,11 @@ async def test_cardiology_agent_returns_agent_output(mock_retriever, MockChatGro
     assert 0.0 <= result.confidence <= 1.0
 
 
-@patch("app.agents.cardiology.ChatGroq")
+@patch("app.agents.cardiology.create_llm")
 @patch("app.agents.cardiology.get_retriever")
-async def test_cardiology_agent_flags_ecg_emergencies(mock_retriever, MockChatGroq):
+async def test_cardiology_agent_flags_ecg_emergencies(mock_retriever, mock_create_llm):
     """CardiologyAgent incluye red_flags ante urgencias cardiológicas."""
-    MockChatGroq.return_value = make_fake_llm(make_agent_response("CardiologyAgent"))
+    mock_create_llm.return_value = make_fake_llm(make_agent_response("CardiologyAgent"))
     mock_retriever.return_value = make_fake_retriever()
 
     agent = CardiologyAgent()
@@ -85,11 +97,11 @@ async def test_cardiology_agent_flags_ecg_emergencies(mock_retriever, MockChatGr
 
 # ─── PharmacologyAgent ─────────────────────────────────────────────────────────
 
-@patch("app.agents.pharmacology.ChatGroq")
+@patch("app.agents.pharmacology.create_llm")
 @patch("app.agents.pharmacology.get_retriever")
-async def test_pharmacology_agent_returns_agent_output(mock_retriever, MockChatGroq):
+async def test_pharmacology_agent_returns_agent_output(mock_retriever, mock_create_llm):
     """PharmacologyAgent devuelve AgentOutput válido."""
-    MockChatGroq.return_value = make_fake_llm(make_agent_response("PharmacologyAgent"))
+    mock_create_llm.return_value = make_fake_llm(make_agent_response("PharmacologyAgent"))
     mock_retriever.return_value = make_fake_retriever()
 
     agent = PharmacologyAgent()
@@ -102,12 +114,12 @@ async def test_pharmacology_agent_returns_agent_output(mock_retriever, MockChatG
     assert len(result.recommendations) > 0
 
 
-@patch("app.agents.pharmacology.ChatGroq")
+@patch("app.agents.pharmacology.create_llm")
 @patch("app.agents.pharmacology.get_retriever")
-async def test_pharmacology_agent_handles_no_red_flags(mock_retriever, MockChatGroq):
+async def test_pharmacology_agent_handles_no_red_flags(mock_retriever, mock_create_llm):
     """PharmacologyAgent funciona correctamente con medicación de bajo riesgo."""
     response = {**make_agent_response("PharmacologyAgent"), "red_flags": []}
-    MockChatGroq.return_value = make_fake_llm(response)
+    mock_create_llm.return_value = make_fake_llm(response)
     mock_retriever.return_value = make_fake_retriever()
 
     agent = PharmacologyAgent()
@@ -120,11 +132,11 @@ async def test_pharmacology_agent_handles_no_red_flags(mock_retriever, MockChatG
 
 # ─── RadiologyAgent ────────────────────────────────────────────────────────────
 
-@patch("app.agents.radiology.ChatGroq")
+@patch("app.agents.radiology.create_llm")
 @patch("app.agents.radiology.get_retriever")
-async def test_radiology_agent_returns_agent_output(mock_retriever, MockChatGroq):
+async def test_radiology_agent_returns_agent_output(mock_retriever, mock_create_llm):
     """RadiologyAgent devuelve AgentOutput válido."""
-    MockChatGroq.return_value = make_fake_llm(make_agent_response("RadiologyAgent"))
+    mock_create_llm.return_value = make_fake_llm(make_agent_response("RadiologyAgent"))
     mock_retriever.return_value = make_fake_retriever()
 
     agent = RadiologyAgent()
@@ -137,11 +149,11 @@ async def test_radiology_agent_returns_agent_output(mock_retriever, MockChatGroq
     assert len(result.findings) > 0
 
 
-@patch("app.agents.radiology.ChatGroq")
+@patch("app.agents.radiology.create_llm")
 @patch("app.agents.radiology.get_retriever")
-async def test_radiology_agent_includes_recommendations(mock_retriever, MockChatGroq):
+async def test_radiology_agent_includes_recommendations(mock_retriever, mock_create_llm):
     """RadiologyAgent propone recomendaciones de seguimiento radiológico."""
-    MockChatGroq.return_value = make_fake_llm(make_agent_response("RadiologyAgent"))
+    mock_create_llm.return_value = make_fake_llm(make_agent_response("RadiologyAgent"))
     mock_retriever.return_value = make_fake_retriever()
 
     agent = RadiologyAgent()

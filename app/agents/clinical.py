@@ -22,12 +22,10 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_groq import ChatGroq
-from langchain_openai import ChatOpenAI
 
 from app.agents.base import BaseAgent
 from app.models.clinical import AgentOutput
-from app.core.config import get_settings
+from app.core.llm import create_llm
 from app.rag.retriever import get_retriever
 from app.rag.loader import format_docs
 
@@ -81,8 +79,6 @@ class ClinicalAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        settings = get_settings()
-
         # ── Parser ───────────────────────────────────────────────────────────
         parser = PydanticOutputParser(pydantic_object=AgentOutput)
 
@@ -92,26 +88,10 @@ class ClinicalAgent(BaseAgent):
             ("human", "{caso_clinico}"),
         ]).partial(format_instructions=parser.get_format_instructions())
 
-        # ── LLM (multi-provider) ─────────────────────────────────────────────
-        if settings.llm_provider == "groq":
-            llm = ChatGroq(
-                api_key=settings.groq_api_key,
-                model=settings.llm_model,
-                temperature=0.2,
-            )
-        elif settings.llm_provider == "lmstudio":
-            llm = ChatOpenAI(
-                base_url=settings.lmstudio_base_url,
-                api_key="lm-studio",
-                model=settings.llm_model,
-                temperature=0.2,
-            )
-        else:
-            llm = ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=settings.llm_model,
-                temperature=0.2,
-            )
+        # ── LLM (multi-provider via Factory) ─────────────────────────────────
+        # temperature=0.2 — balance entre precisión y capacidad de síntesis
+        # create_llm() centraliza la selección de proveedor (ver app/core/llm.py)
+        llm = create_llm(temperature=0.2)
 
         # ── Retriever ─────────────────────────────────────────────────────────
         #

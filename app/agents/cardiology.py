@@ -16,12 +16,10 @@ Temperature 0.1 — la interpretación de ECG requiere máxima precisión.
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_groq import ChatGroq
-from langchain_openai import ChatOpenAI
 
 from app.agents.base import BaseAgent
 from app.models.clinical import AgentOutput
-from app.core.config import get_settings
+from app.core.llm import create_llm
 from app.rag.retriever import get_retriever
 from app.rag.loader import format_docs
 
@@ -71,8 +69,6 @@ class CardiologyAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        settings = get_settings()
-
         parser = PydanticOutputParser(pydantic_object=AgentOutput)
 
         prompt = ChatPromptTemplate.from_messages([
@@ -80,25 +76,9 @@ class CardiologyAgent(BaseAgent):
             ("human", "{caso_clinico}"),
         ]).partial(format_instructions=parser.get_format_instructions())
 
-        if settings.llm_provider == "groq":
-            llm = ChatGroq(
-                api_key=settings.groq_api_key,
-                model=settings.llm_model,
-                temperature=0.1,
-            )
-        elif settings.llm_provider == "lmstudio":
-            llm = ChatOpenAI(
-                base_url=settings.lmstudio_base_url,
-                api_key="lm-studio",
-                model=settings.llm_model,
-                temperature=0.1,
-            )
-        else:
-            llm = ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=settings.llm_model,
-                temperature=0.1,
-            )
+        # temperature=0.1 — la interpretación de ECG requiere máxima precisión
+        # create_llm() centraliza la selección de proveedor (ver app/core/llm.py)
+        llm = create_llm(temperature=0.1)
 
         retriever = get_retriever(k=3)
 

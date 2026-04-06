@@ -1,8 +1,23 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """
+    Configuración central de la aplicación cargada desde variables de entorno.
+
+    ¿Por qué llm_provider usa str en lugar de LLMProvider directamente?
+    ─────────────────────────────────────────────────────────────────────
+    Hay una dependencia circular potencial: config.py importaría llm.py, y
+    llm.py importa config.py. Para evitarlo, llm_provider sigue siendo `str`
+    en el modelo de settings. La validación con el Enum ocurre en create_llm()
+    dentro de llm.py, donde se compara el string contra LLMProvider.
+
+    Esta separación es intencional: Settings sabe QUÉ está configurado,
+    create_llm() sabe QUÉ HACER con esa configuración.
+    """
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -21,6 +36,8 @@ class Settings(BaseSettings):
     lmstudio_base_url: str = "http://localhost:1234/v1"
 
     # Provider activo: "openai" | "groq" | "lmstudio"
+    # El tipo es str para evitar dependencia circular con app.core.llm.
+    # La validación del valor ocurre en create_llm() usando LLMProvider enum.
     llm_provider: str = "groq"
     llm_model: str = "llama-3.3-70b-versatile"  # default para Groq
 

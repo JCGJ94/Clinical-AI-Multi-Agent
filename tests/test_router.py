@@ -1,14 +1,19 @@
 """
 Tests del AgentRouter — Fase 6.
 
-¿Qué mockeamos?
-  AgentRouter.__init__ solo instancia el LLM (sin RAG, sin get_retriever).
-  Solo necesitamos parchear ChatGroq para que devuelva un LLM falso.
+Actualizado en Fase 11 (LLM Factory):
+  Antes: @patch("app.agents.router.create_llm")
+  Ahora: @patch("app.agents.router.create_llm")
 
-Patrón:
-  @patch("app.agents.router.ChatGroq")
-  async def test_algo(MockChatGroq):
-      MockChatGroq.return_value = RunnableLambda(lambda _: AIMessage(content=json.dumps(response)))
+¿Qué mockeamos?
+  AgentRouter.__init__ llama create_llm() (sin RAG, sin get_retriever).
+  Solo necesitamos parchear create_llm para que devuelva un LLM falso.
+  No hay get_retriever aquí — el router no usa RAG.
+
+Patrón actualizado:
+  @patch("app.agents.router.create_llm")
+  async def test_algo(mock_create_llm):
+      mock_create_llm.return_value = RunnableLambda(lambda _: AIMessage(content=json.dumps(response)))
       router = AgentRouter()
       result = await router.run(...)
 
@@ -42,10 +47,10 @@ def make_fake_llm(response: dict) -> RunnableLambda:
 
 # ─── Tests básicos ─────────────────────────────────────────────────────────────
 
-@patch("app.agents.router.ChatGroq")
-async def test_router_returns_triage_output(MockChatGroq):
+@patch("app.agents.router.create_llm")
+async def test_router_returns_triage_output(mock_create_llm):
     """AgentRouter devuelve un TriageOutput válido."""
-    MockChatGroq.return_value = make_fake_llm(make_triage_response(
+    mock_create_llm.return_value = make_fake_llm(make_triage_response(
         nivel="URGENTE",
         agentes=["ClinicalAgent", "DifferentialDiagnosisAgent"],
         razonamiento="Síntomas complejos que requieren evaluación clínica y diferencial.",
@@ -64,10 +69,10 @@ async def test_router_returns_triage_output(MockChatGroq):
     assert isinstance(result.razonamiento, str)
 
 
-@patch("app.agents.router.ChatGroq")
-async def test_router_classifies_critical_cases(MockChatGroq):
+@patch("app.agents.router.create_llm")
+async def test_router_classifies_critical_cases(mock_create_llm):
     """CRITICO → EmergencyAgent siempre presente."""
-    MockChatGroq.return_value = make_fake_llm(make_triage_response(
+    mock_create_llm.return_value = make_fake_llm(make_triage_response(
         nivel="CRITICO",
         agentes=["EmergencyAgent", "ClinicalAgent", "DifferentialDiagnosisAgent"],
         razonamiento="Posible síndrome coronario agudo con riesgo vital inminente.",
@@ -83,10 +88,10 @@ async def test_router_classifies_critical_cases(MockChatGroq):
     assert "EmergencyAgent" in result.agentes_sugeridos
 
 
-@patch("app.agents.router.ChatGroq")
-async def test_router_classifies_non_urgent_cases(MockChatGroq):
+@patch("app.agents.router.create_llm")
+async def test_router_classifies_non_urgent_cases(mock_create_llm):
     """NO_URGENTE → solo ClinicalAgent."""
-    MockChatGroq.return_value = make_fake_llm(make_triage_response(
+    mock_create_llm.return_value = make_fake_llm(make_triage_response(
         nivel="NO_URGENTE",
         agentes=["ClinicalAgent"],
         razonamiento="Síntomas leves sin signos de alarma.",
@@ -102,10 +107,10 @@ async def test_router_classifies_non_urgent_cases(MockChatGroq):
     assert result.agentes_sugeridos == ["ClinicalAgent"]
 
 
-@patch("app.agents.router.ChatGroq")
-async def test_router_handles_empty_sintomas(MockChatGroq):
+@patch("app.agents.router.create_llm")
+async def test_router_handles_empty_sintomas(mock_create_llm):
     """El router funciona incluso si la lista de síntomas está vacía."""
-    MockChatGroq.return_value = make_fake_llm(make_triage_response(
+    mock_create_llm.return_value = make_fake_llm(make_triage_response(
         nivel="URGENTE",
         agentes=["ClinicalAgent"],
         razonamiento="Sin síntomas específicos — evaluación clínica general.",
@@ -120,11 +125,11 @@ async def test_router_handles_empty_sintomas(MockChatGroq):
     assert isinstance(result, TriageOutput)
 
 
-@patch("app.agents.router.ChatGroq")
-async def test_router_includes_razonamiento(MockChatGroq):
+@patch("app.agents.router.create_llm")
+async def test_router_includes_razonamiento(mock_create_llm):
     """El razonamiento siempre es un string no vacío."""
     razonamiento = "Disnea severa con saturación baja → posible TEP o insuficiencia respiratoria."
-    MockChatGroq.return_value = make_fake_llm(make_triage_response(
+    mock_create_llm.return_value = make_fake_llm(make_triage_response(
         nivel="MUY_URGENTE",
         agentes=["EmergencyAgent", "ClinicalAgent"],
         razonamiento=razonamiento,
