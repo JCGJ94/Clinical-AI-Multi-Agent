@@ -71,6 +71,7 @@ Timeout por agente:
 
 import asyncio
 import logging
+import time
 from app.agents.clinical import ClinicalAgent
 from app.agents.emergency import EmergencyAgent
 from app.agents.diagnosis import DifferentialDiagnosisAgent
@@ -80,8 +81,9 @@ from app.agents.radiology import RadiologyAgent
 from app.agents.base import BaseAgent
 from app.models.clinical import AgentOutput, AnalyzeOutput, NivelUrgencia
 from app.core.exceptions import AgentExecutionError, AllAgentsFailedError
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = get_logger(__name__)
 
 # Timeout en segundos por agente.
 # 30 segundos es generoso para llamadas LLM — ajustar según el provider.
@@ -162,9 +164,29 @@ async def _safe_run(agent: BaseAgent, agent_name: str, caso_clinico: str, timeou
         → Si timeout           → asyncio.TimeoutError → AgentExecutionError("CardiologyAgent", ...)
         → Si otro error        → Exception cualquiera → AgentExecutionError("CardiologyAgent", ...)
     """
+    start = time.perf_counter()
     try:
-        return await asyncio.wait_for(agent.run(caso_clinico), timeout=timeout)
+        result = await asyncio.wait_for(agent.run(caso_clinico), timeout=timeout)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "Agent completed",
+            extra={
+                "agent_name": agent_name,
+                "duration_ms": duration_ms,
+                "confidence": result.confidence,
+            },
+        )
+        return result
     except asyncio.TimeoutError as exc:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.warning(
+            "Agent failed",
+            extra={
+                "agent_name": agent_name,
+                "error_type": "TimeoutError",
+                "duration_ms": duration_ms,
+            },
+        )
         raise AgentExecutionError(
             agent_name=agent_name,
             cause=TimeoutError(f"Timeout después de {timeout}s"),
@@ -173,6 +195,15 @@ async def _safe_run(agent: BaseAgent, agent_name: str, caso_clinico: str, timeou
         # Si ya es AgentExecutionError, re-lanzamos sin envolver de nuevo
         raise
     except Exception as exc:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.warning(
+            "Agent failed",
+            extra={
+                "agent_name": agent_name,
+                "error_type": type(exc).__name__,
+                "duration_ms": duration_ms,
+            },
+        )
         raise AgentExecutionError(agent_name=agent_name, cause=exc) from exc
 
 
@@ -238,6 +269,16 @@ class Integrator:
             urgency = nivel_urgencia or NivelUrgencia.URGENTE
             agent_names = AGENTS_BY_URGENCY[urgency]
 
+        logger.info(
+            "Starting analysis",
+            extra={
+                "agent_count": len(agent_names),
+                "agents": agent_names,
+                "urgencia": nivel_urgencia.value if nivel_urgencia else None,
+            },
+        )
+
+        total_start = time.perf_counter()
         agents: list[BaseAgent] = [AGENT_REGISTRY[name]() for name in agent_names]
 
         # return_exceptions=True: en lugar de propagar el primer error,
@@ -272,6 +313,10 @@ class Integrator:
         if not successes:
             failed_names = [name for name, _ in failures]
             failed_errors = [err for _, err in failures]
+            logger.error(
+                "All agents failed",
+                extra={"failed_count": len(failed_names)},
+            )
             raise AllAgentsFailedError(agent_names=failed_names, errors=failed_errors)
 
         # Construimos el resultado combinado con los agentes exitosos
@@ -290,5 +335,16 @@ class Integrator:
                 len(failures),
                 ", ".join(output.failed_agents),
             )
+
+        total_duration_ms = int((time.perf_counter() - total_start) * 1000)
+        logger.info(
+            "Analysis complete",
+            extra={
+                "confidence": output.confidence,
+                "succeeded": len(successes),
+                "failed": len(failures),
+                "total_duration_ms": total_duration_ms,
+            },
+        )
 
         return output

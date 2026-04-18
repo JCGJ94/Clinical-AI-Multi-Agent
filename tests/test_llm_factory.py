@@ -105,11 +105,11 @@ def test_create_llm_groq(MockChatGroq, mock_get_settings):
 
     result = create_llm(temperature=0.2)
 
-    MockChatGroq.assert_called_once_with(
-        api_key="test-groq-key",
-        model="test-model",
-        temperature=0.2,
-    )
+    MockChatGroq.assert_called_once()
+    call_kwargs = MockChatGroq.call_args[1]
+    assert call_kwargs["api_key"] == "test-groq-key"
+    assert call_kwargs["model"] == "test-model"
+    assert call_kwargs["temperature"] == 0.2
     assert result is fake_instance
 
 
@@ -127,11 +127,11 @@ def test_create_llm_openai(MockChatOpenAI, mock_get_settings):
 
     result = create_llm(temperature=0.5)
 
-    MockChatOpenAI.assert_called_once_with(
-        api_key="test-openai-key",
-        model="test-model",
-        temperature=0.5,
-    )
+    MockChatOpenAI.assert_called_once()
+    call_kwargs = MockChatOpenAI.call_args[1]
+    assert call_kwargs["api_key"] == "test-openai-key"
+    assert call_kwargs["model"] == "test-model"
+    assert call_kwargs["temperature"] == 0.5
     assert result is fake_instance
 
 
@@ -156,12 +156,12 @@ def test_create_llm_lmstudio(MockChatOpenAI, mock_get_settings):
 
     result = create_llm(temperature=0.1)
 
-    MockChatOpenAI.assert_called_once_with(
-        base_url="http://localhost:1234/v1",
-        api_key="lm-studio",
-        model="test-model",
-        temperature=0.1,
-    )
+    MockChatOpenAI.assert_called_once()
+    call_kwargs = MockChatOpenAI.call_args[1]
+    assert call_kwargs["base_url"] == "http://localhost:1234/v1"
+    assert call_kwargs["api_key"] == "lm-studio"
+    assert call_kwargs["model"] == "test-model"
+    assert call_kwargs["temperature"] == 0.1
     assert result is fake_instance
 
 
@@ -183,15 +183,15 @@ def test_create_llm_respects_temperature(MockChatGroq, mock_get_settings):
 
     # temperature=0.0 → para el router (triage determinista)
     create_llm(temperature=0.0)
-    _, kwargs = MockChatGroq.call_args
-    assert kwargs["temperature"] == 0.0
+    call_kwargs = MockChatGroq.call_args[1]
+    assert call_kwargs["temperature"] == 0.0
 
     MockChatGroq.reset_mock()
 
     # temperature=0.3 → para DifferentialDiagnosisAgent (más creatividad)
     create_llm(temperature=0.3)
-    _, kwargs = MockChatGroq.call_args
-    assert kwargs["temperature"] == 0.3
+    call_kwargs = MockChatGroq.call_args[1]
+    assert call_kwargs["temperature"] == 0.3
 
 
 # ─── Test de proveedor inválido ────────────────────────────────────────────────

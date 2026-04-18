@@ -24,11 +24,18 @@ y necesitan un string puro para la búsqueda semántica.
 Sin retriever, el input puede ser dict perfectamente.
 """
 
+import logging
+import time
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
 from app.models.clinical import TriageOutput, NivelUrgencia
 from app.core.llm import create_llm
+from app.core.logging import get_logger
+
+
+logger: logging.Logger = get_logger(__name__)
 
 
 SYSTEM_PROMPT = """\
@@ -97,7 +104,29 @@ class AgentRouter:
 
     async def run(self, texto_clinico: str, sintomas: list[str]) -> TriageOutput:
         sintomas_str = ", ".join(sintomas) if sintomas else "no especificados"
-        return await self.chain.ainvoke({
+
+        logger.info(
+            "Triage started",
+            extra={
+                "texto_length": len(texto_clinico),
+                "sintomas_count": len(sintomas),
+            },
+        )
+
+        start = time.perf_counter()
+        result = await self.chain.ainvoke({
             "texto_clinico": texto_clinico,
             "sintomas": sintomas_str,
         })
+        duration_ms = int((time.perf_counter() - start) * 1000)
+
+        logger.info(
+            "Triage completed",
+            extra={
+                "urgencia": result.nivel_urgencia.value,
+                "agentes": result.agentes_sugeridos,
+                "duration_ms": duration_ms,
+            },
+        )
+
+        return result

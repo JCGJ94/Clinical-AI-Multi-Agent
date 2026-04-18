@@ -85,6 +85,7 @@ Este módulo tiene UNA responsabilidad: crear el LLM correcto.
 Si cambia la lógica de selección de proveedor → cambiamos SOLO este archivo.
 """
 
+import logging
 from enum import Enum
 
 from langchain_core.language_models import BaseChatModel
@@ -92,6 +93,10 @@ from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
+
+
+logger: logging.Logger = get_logger(__name__)
 
 
 class LLMProvider(str, Enum):
@@ -155,6 +160,23 @@ def create_llm(temperature: float = 0.2) -> BaseChatModel:
     settings = get_settings()
     provider = settings.llm_provider
 
+    logger.info(
+        "Creating LLM",
+        extra={
+            "provider": str(provider),
+            "model": settings.llm_model,
+            "temperature": temperature,
+        },
+    )
+
+    # Importación diferida para evitar dependencia circular en tests:
+    # callbacks.py → logging.py → (nada más de app.core)
+    # llm.py → callbacks.py → logging.py
+    # Si logging.py importara llm.py tendríamos un ciclo.
+    # La importación local es la solución idiomática para ciclos opcionales.
+    from app.core.callbacks import LoggingCallbackHandler
+    callbacks = [LoggingCallbackHandler()]
+
     if provider == LLMProvider.GROQ:
         # ChatGroq — proveedor por defecto en este proyecto
         # Usa modelos Llama 3.x, Mixtral vía Groq Cloud
@@ -163,6 +185,7 @@ def create_llm(temperature: float = 0.2) -> BaseChatModel:
             api_key=settings.groq_api_key,
             model=settings.llm_model,
             temperature=temperature,
+            callbacks=callbacks,
         )
 
     if provider == LLMProvider.LMSTUDIO:
@@ -175,6 +198,7 @@ def create_llm(temperature: float = 0.2) -> BaseChatModel:
             api_key="lm-studio",
             model=settings.llm_model,
             temperature=temperature,
+            callbacks=callbacks,
         )
 
     if provider == LLMProvider.OPENAI:
@@ -184,6 +208,7 @@ def create_llm(temperature: float = 0.2) -> BaseChatModel:
             api_key=settings.openai_api_key,
             model=settings.llm_model,
             temperature=temperature,
+            callbacks=callbacks,
         )
 
     # Proveedor desconocido — fallo rápido con mensaje claro

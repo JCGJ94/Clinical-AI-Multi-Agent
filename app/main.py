@@ -27,22 +27,30 @@ Todo lo que ponés después del yield se ejecuta cuando se detiene.
     - Alembic tiene historial, rollback, y genera SQL verificable
 """
 
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.config import get_settings
 from app.core.exceptions import ClinicalBaseError
+from app.core.logging import setup_logging, get_logger
 from app.routes.health import router as health_router
 from app.routes.clinical import router as clinical_router
 from app.db.session import engine
 from app.db.models import Base
 
+logger = get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # STARTUP
+    # setup_logging ANTES de cualquier otra inicialización para que
+    # todos los eventos de startup queden registrados.
+    # debug=settings.debug → DEBUG en desarrollo, INFO en producción.
+    setup_logging(debug=settings.debug)
+
     # create_all(): crea tablas si no existen — idempotente (no falla si ya existen)
     # Útil en dev y tests. En prod: usar `alembic upgrade head` en lugar de esto.
     async with engine.begin() as conn:
@@ -101,6 +109,52 @@ async def clinical_error_handler(request: Request, exc: ClinicalBaseError) -> JS
             "status_code": 500,
         },
     )
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    """
+    Middleware que registra cada request HTTP con método, path, status y duración.
+
+    ¿Qué es un middleware en FastAPI?
+    ──────────────────────────────────
+    Un middleware es una función que envuelve CADA request-response del servidor.
+    Se ejecuta ANTES del endpoint (para setup) y DESPUÉS (para cleanup/logging).
+
+    La firma siempre es: async (request, call_next) → Response
+    donde call_next(request) invoca el siguiente middleware o el endpoint final.
+
+    Esto es el PATRÓN CHAIN OF RESPONSIBILITY: cada middleware decide si
+    procesar el request, pasarlo al siguiente, o ambos.
+
+    ¿Por qué time.perf_counter() y no time.time()?
+    ─────────────────────────────────────────────────
+    time.time() es el "wall clock" — puede ir hacia atrás si el sistema
+    ajusta el reloj (NTP sync, zona horaria, etc.).
+    time.perf_counter() es MONOTÓNICO — garantizado que nunca retrocede.
+    Para medir duraciones, siempre usás perf_counter.
+
+    ¿Por qué logueamos DESPUÉS de call_next(request)?
+    ───────────────────────────────────────────────────
+    Porque recién después tenemos el status_code de la response.
+    El request llega, se procesa completamente, y solo entonces
+    conocemos si fue un 200, 404, 500, etc.
+    """
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = int((time.perf_counter() - start) * 1000)
+
+    logger.info(
+        "Request",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+        },
+    )
+
+    return response
 
 
 app.include_router(health_router)
