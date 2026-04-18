@@ -43,6 +43,9 @@ from app.db.models import Base
 logger = get_logger(__name__)
 
 
+settings = get_settings()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # STARTUP
@@ -61,9 +64,6 @@ async def lifespan(app: FastAPI):
     # SHUTDOWN
     # Cerramos el engine correctamente — libera conexiones del pool
     await engine.dispose()
-
-
-settings = get_settings()
 
 app = FastAPI(
     title=settings.app_name,
