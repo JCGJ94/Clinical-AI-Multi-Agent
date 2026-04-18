@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1.9
+# ═══════════════════════════════════════════════════════════════════════════
+#  API Image — Clinical AI Multi-Agent (FastAPI + LangChain)
+# ───────────────────────────────────────────────────────────────────────────
+#  Multi-stage build:
+#    builder  → resuelve dependencias con uv (rápido, deterministic via lock)
+#    runtime  → imagen mínima con solo el venv + código + usuario non-root
+#
+#  Target size: ~180-220 MB (python-slim + fastapi + langchain stack)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ─── Stage 1: builder ───────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+# uv oficial (imagen standalone con el binario — sin apt-get, sin pip install)
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /bin/
+
+WORKDIR /app
+
+# Layer 1 — solo dependencias (cacheable, cambia poco)
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+# Layer 2 — código de la app (cambia seguido, no invalida el layer de deps)
+COPY app/ ./app/
+
+# ─── Stage 2: runtime ───────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+# Usuario non-root (seguridad — nunca correr como root en prod)
+RUN groupadd --system --gid 1001 appuser \
+ && useradd  --system --uid 1001 --gid appuser --no-create-home appuser
+
+# Copiamos el venv y el código desde el builder
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+COPY --from=builder --chown=appuser:appuser /app/app /app/app
+
+USER appuser
+
+EXPOSE 8000
+
+# Healthcheck — Docker sabe si el container está sano o colgado
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request, sys; \
+r = urllib.request.urlopen('http://localhost:8000/health', timeout=3); \
+sys.exit(0 if r.status == 200 else 1)" || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,75 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  Compose PROD override
+# ───────────────────────────────────────────────────────────────────────────
+#  Configuración endurecida para producción:
+#    - Ports bindeados solo a 127.0.0.1 (no expuestos al mundo sin reverse proxy)
+#    - NO hay bind mounts: el código va dentro de la imagen (inmutable)
+#    - Corre como non-root (appuser uid=1001 definido en el Dockerfile)
+#    - restart: unless-stopped (se levanta solo si el host reinicia)
+#    - Límites de CPU/RAM (evita que un runaway consuma todo el VPS)
+#    - log rotation (sin esto los logs crecen infinitamente)
+#
+#  Uso:
+#    ./scripts/prod-up.sh
+#    — o —
+#    docker compose -f docker/compose.yml -f docker/compose.prod.yml up -d
+#
+#  Antes de deployar al VPS real, probá localmente:
+#    cp envs/.env.prod.example envs/.env.prod && editá los secrets
+#    ./scripts/prod-up.sh
+#    curl http://127.0.0.1:8000/health
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  postgres:
+    env_file:
+      - ../envs/.env.prod
+    restart: unless-stopped
+    # IMPORTANTE: 127.0.0.1 — postgres NO debe ser accesible desde internet.
+    # Si necesitás acceso remoto, usá un reverse proxy con auth o VPN.
+    ports:
+      - "127.0.0.1:5433:5432"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    env_file:
+      - ../envs/.env.prod
+    restart: unless-stopped
+    # Mismo criterio: 127.0.0.1, un reverse proxy (Caddy/Nginx/Traefik) va
+    # delante y maneja el TLS + routing público.
+    ports:
+      - "127.0.0.1:8000:8000"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  indexer:
+    env_file:
+      - ../envs/.env.prod
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

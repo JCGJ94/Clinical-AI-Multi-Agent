@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  Compose BASE — Clinical AI Multi-Agent
+# ───────────────────────────────────────────────────────────────────────────
+#  Este archivo define la arquitectura ESTÁTICA (imagen, healthchecks, red).
+#  Nunca se levanta solo — siempre se combina con un override:
+#
+#    Dev:   docker compose -f compose.yml -f compose.dev.yml  up
+#    Prod:  docker compose -f compose.yml -f compose.prod.yml up
+#
+#  Servicios:
+#    postgres  → pgvector/pgvector:pg16 (Postgres 16 + extensión pgvector)
+#    api       → FastAPI (uvicorn)
+#    indexer   → Script one-shot RAG (profile=tools, solo bajo demanda)
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: clinical-ai
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: clinical-ai-postgres
+    healthcheck:
+      # pg_isready no usa auth — chequea si el cluster acepta conexiones
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - clinical-net
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: clinical-ai-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - clinical-net
+
+  indexer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.indexer
+    container_name: clinical-ai-indexer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - clinical-net
+    # profile=tools → NO se levanta con `up`, solo con:
+    #   docker compose --profile tools run --rm indexer
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    name: clinical-ai-postgres-data
+
+networks:
+  clinical-net:
+    name: clinical-ai-net
+    driver: bridge

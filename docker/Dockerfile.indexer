@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1.9
+# ═══════════════════════════════════════════════════════════════════════════
+#  Indexer Image — RAG pipeline (one-shot)
+# ───────────────────────────────────────────────────────────────────────────
+#  Este container NO es un servicio. Se ejecuta bajo demanda:
+#    docker compose --profile tools run --rm indexer
+#
+#  Indexa docs/ → embeddings OpenAI → pgvector.
+#  Necesita OPENAI_API_KEY y acceso al servicio postgres.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ─── Stage 1: builder ───────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /bin/
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+# El indexer necesita el código de la app (rag/, core/) + scripts/ + docs/
+COPY app/ ./app/
+COPY scripts/ ./scripts/
+COPY docs/ ./docs/
+
+# ─── Stage 2: runtime ───────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+RUN groupadd --system --gid 1001 appuser \
+ && useradd  --system --uid 1001 --gid appuser --no-create-home appuser
+
+COPY --from=builder --chown=appuser:appuser /app/.venv   /app/.venv
+COPY --from=builder --chown=appuser:appuser /app/app     /app/app
+COPY --from=builder --chown=appuser:appuser /app/scripts /app/scripts
+COPY --from=builder --chown=appuser:appuser /app/docs    /app/docs
+
+USER appuser
+
+# El indexer es un one-shot — sin CMD que lo mantenga vivo.
+# Se ejecuta via `docker compose run --rm indexer` y termina.
+ENTRYPOINT ["python", "-m", "scripts.indexer"]

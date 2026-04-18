@@ -1,0 +1,65 @@
+# ═══════════════════════════════════════════════════════════════
+#  .dockerignore — todo lo que NO debe viajar al build context
+# ═══════════════════════════════════════════════════════════════
+# Regla de oro: cuanto más liviano el context, más rápido el build
+# y más pequeña la imagen. Excluí todo lo que no use el runtime.
+
+# ─── VCS ─────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ─── Python caches / bytecode ────────────────────────────────
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# ─── Virtualenvs locales ─────────────────────────────────────
+.venv
+venv
+env
+
+# ─── IDE / editor ────────────────────────────────────────────
+.vscode
+.idea
+.cursor
+*.swp
+*.swo
+
+# ─── Tests (no van a runtime) ────────────────────────────────
+tests
+
+# ─── Env files — NUNCA bakear secrets en imagen ──────────────
+.env
+.env.*
+envs
+
+# ─── Shell scripts — no sirven dentro del container ──────────
+scripts/*.sh
+
+# ─── Docker artefactos ───────────────────────────────────────
+docker
+Dockerfile*
+docker-compose*.yml
+compose*.yml
+
+# ─── Docs de repo (no las del RAG) ───────────────────────────
+README.md
+AGENTS.md
+CHANGELOG.md
+LICENSE
+
+# ─── Alembic (si está) — se maneja aparte ────────────────────
+alembic
+alembic.ini
+
+# ─── Sistema operativo ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log

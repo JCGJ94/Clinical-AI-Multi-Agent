@@ -1,0 +1,53 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  Compose DEV override
+# ───────────────────────────────────────────────────────────────────────────
+#  Extiende compose.yml con config específica de desarrollo:
+#    - Postgres expuesto en 5433 (evita conflicto con otros postgres locales)
+#    - API con bind mount de app/ para hot reload + uvicorn --reload
+#    - DEBUG=true (logs verbose + FastAPI debug)
+#    - Corre como root en dev (evita fricciones de permisos)
+#
+#  Uso:
+#    ./scripts/dev-up.sh
+#    — o —
+#    docker compose -f docker/compose.yml -f docker/compose.dev.yml up -d
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  postgres:
+    env_file:
+      - ../envs/.env.dev
+    ports:
+      # Mapeamos a 5433 porque el puerto 5432 puede estar ocupado por otro
+      # postgres local (ejemplo: otra DB del usuario)
+      - "5433:5432"
+
+  api:
+    env_file:
+      - ../envs/.env.dev
+    # Override del CMD: uvicorn con --reload para hot reload en dev.
+    # En prod, este flag NUNCA se usa (consumo CPU + reinicia en archivos cambiados).
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/app
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind mount: los cambios en tu IDE se reflejan instantáneamente dentro
+      # del container. :ro porque el container NO debe escribir al source.
+      - ../app:/app/app:ro
+      - ../docs:/app/docs:ro
+    # En dev corremos como root para evitar problemas de permisos con el
+    # bind mount (tu UID del host puede no coincidir con el appuser del Dockerfile).
+    user: root
+
+  indexer:
+    env_file:
+      - ../envs/.env.dev
+    volumes:
+      # Montamos docs/ para que podás editar los .md y reindexar sin rebuild
+      - ../docs:/app/docs:ro
+    user: root

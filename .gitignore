@@ -7,3 +7,11 @@ __pycache__/
 *.zip
 .DS_Store
 Asistente Médico IA/
+
+# Env files reales (dev/prod) — nunca commitear
+envs/.env.dev
+envs/.env.prod
+envs/.env.local
+envs/.env
+# Los *.example SÍ se commitean (repo auto-documentado)
+!envs/env.*.example
