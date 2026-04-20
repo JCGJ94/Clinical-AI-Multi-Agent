@@ -1,0 +1,48 @@
+services:
+  postgres:
+    env_file:
+      - ../envs/.env.prod
+    ports: []
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/JCGJ94/clinical-ai-api:${IMAGE_TAG:-latest}
+    build: null
+    env_file:
+      - ../envs/.env.prod
+    ports: []
+    restart: unless-stopped
+    networks:
+      - clinical-net
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.clinical-ai.rule=Host(`api.jccode.dev`)
+      - traefik.http.routers.clinical-ai.entrypoints=websecure
+      - traefik.http.routers.clinical-ai.tls=true
+      - traefik.http.routers.clinical-ai.tls.certresolver=le
+      - traefik.http.services.clinical-ai.loadbalancer.server.port=8000
+
+  migrator:
+    image: ghcr.io/JCGJ94/clinical-ai-api:${IMAGE_TAG:-latest}
+    env_file:
+      - ../envs/.env.prod
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - clinical-net
+    profiles:
+      - tools
+
+  indexer:
+    image: ghcr.io/JCGJ94/clinical-ai-indexer:${IMAGE_TAG:-latest}
+    build: null
+    env_file:
+      - ../envs/.env.prod
+
+networks:
+  proxy:
+    external: true
