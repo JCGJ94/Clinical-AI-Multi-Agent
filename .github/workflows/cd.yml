@@ -1,6 +1,7 @@
 name: CD
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   GHCR_NAMESPACE: jcgj94
 
 on:

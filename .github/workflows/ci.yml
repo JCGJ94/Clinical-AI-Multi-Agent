@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   GROQ_API_KEY: test-groq-key
   OPENAI_API_KEY: test-openai-key
 
