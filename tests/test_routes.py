@@ -101,21 +101,45 @@ async def client():
 def mock_services():
     """
     Mockea AgentRouter, Integrator y ClinicalCaseRepository.
+
+    IMPORTANTE:
+    Mockeamos AgentRouter e Integrator a nivel CLASE, no solo sus métodos.
+    ¿Por qué? Porque AgentRouter.__init__() crea el LLM real y eso requiere
+    credenciales (GROQ_API_KEY / OPENAI_API_KEY). Si parcheamos solo .run,
+    el constructor igual se ejecuta antes del mock y el test explota en CI.
     """
-    with patch("app.routes.clinical.AgentRouter.run", new=AsyncMock(return_value=MOCK_TRIAGE_OUTPUT)), \
-         patch("app.routes.clinical.Integrator.analyze", new=AsyncMock(return_value=MOCK_ANALYZE_OUTPUT)), \
-         patch("app.routes.clinical.ClinicalCaseRepository.save", new=AsyncMock(return_value=MOCK_SAVED_CASE)), \
-         patch("app.routes.clinical.ClinicalCaseRepository.get_by_id", new=AsyncMock(return_value=MOCK_SAVED_CASE)):
+    mock_router = MagicMock()
+    mock_router.run = AsyncMock(return_value=MOCK_TRIAGE_OUTPUT)
+
+    mock_integrator = MagicMock()
+    mock_integrator.analyze = AsyncMock(return_value=MOCK_ANALYZE_OUTPUT)
+
+    with (
+        patch("app.routes.clinical.AgentRouter", return_value=mock_router),
+        patch("app.routes.clinical.Integrator", return_value=mock_integrator),
+        patch(
+            "app.routes.clinical.ClinicalCaseRepository.save",
+            new=AsyncMock(return_value=MOCK_SAVED_CASE),
+        ),
+        patch(
+            "app.routes.clinical.ClinicalCaseRepository.get_by_id",
+            new=AsyncMock(return_value=MOCK_SAVED_CASE),
+        ),
+    ):
         yield
 
 
 # ─── Triage ──────────────────────────────────────────────────
 
+
 async def test_triage_returns_valid_structure(client: AsyncClient):
-    response = await client.post("/clinical-case/triage", json={
-        "texto_clinico": "Paciente de 62 años con dolor torácico y disnea",
-        "sintomas": ["dolor_toracico", "disnea"],
-    })
+    response = await client.post(
+        "/clinical-case/triage",
+        json={
+            "texto_clinico": "Paciente de 62 años con dolor torácico y disnea",
+            "sintomas": ["dolor_toracico", "disnea"],
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -126,27 +150,37 @@ async def test_triage_returns_valid_structure(client: AsyncClient):
 
 
 async def test_triage_rejects_empty_sintomas(client: AsyncClient):
-    response = await client.post("/clinical-case/triage", json={
-        "texto_clinico": "Paciente con dolor torácico",
-        "sintomas": [],
-    })
+    response = await client.post(
+        "/clinical-case/triage",
+        json={
+            "texto_clinico": "Paciente con dolor torácico",
+            "sintomas": [],
+        },
+    )
     assert response.status_code == 422
 
 
 async def test_triage_rejects_short_texto(client: AsyncClient):
-    response = await client.post("/clinical-case/triage", json={
-        "texto_clinico": "corto",
-        "sintomas": ["dolor"],
-    })
+    response = await client.post(
+        "/clinical-case/triage",
+        json={
+            "texto_clinico": "corto",
+            "sintomas": ["dolor"],
+        },
+    )
     assert response.status_code == 422
 
 
 # ─── Analyze ─────────────────────────────────────────────────
 
+
 async def test_analyze_returns_valid_structure(client: AsyncClient):
-    response = await client.post("/clinical-case/analyze", json={
-        "caso_clinico": "Paciente de 62 años con dolor torácico, hipertensión y antecedentes de tabaquismo.",
-    })
+    response = await client.post(
+        "/clinical-case/analyze",
+        json={
+            "caso_clinico": "Paciente de 62 años con dolor torácico, hipertensión y antecedentes de tabaquismo.",
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -161,9 +195,12 @@ async def test_analyze_returns_valid_structure(client: AsyncClient):
 
 async def test_analyze_returns_case_id(client: AsyncClient):
     """Fase 8: el analyze devuelve case_id del caso persistido."""
-    response = await client.post("/clinical-case/analyze", json={
-        "caso_clinico": "Paciente de 62 años con dolor torácico, hipertensión.",
-    })
+    response = await client.post(
+        "/clinical-case/analyze",
+        json={
+            "caso_clinico": "Paciente de 62 años con dolor torácico, hipertensión.",
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -171,22 +208,29 @@ async def test_analyze_returns_case_id(client: AsyncClient):
 
 
 async def test_analyze_accepts_nivel_urgencia(client: AsyncClient):
-    response = await client.post("/clinical-case/analyze", json={
-        "caso_clinico": "Paciente de 45 años con dolor torácico agudo irradiado al brazo izquierdo.",
-        "nivel_urgencia": "CRITICO",
-    })
+    response = await client.post(
+        "/clinical-case/analyze",
+        json={
+            "caso_clinico": "Paciente de 45 años con dolor torácico agudo irradiado al brazo izquierdo.",
+            "nivel_urgencia": "CRITICO",
+        },
+    )
     assert response.status_code == 200
 
 
 async def test_analyze_rejects_invalid_nivel_urgencia(client: AsyncClient):
-    response = await client.post("/clinical-case/analyze", json={
-        "caso_clinico": "Paciente con síntomas leves y malestar general.",
-        "nivel_urgencia": "INVENTADO",
-    })
+    response = await client.post(
+        "/clinical-case/analyze",
+        json={
+            "caso_clinico": "Paciente con síntomas leves y malestar general.",
+            "nivel_urgencia": "INVENTADO",
+        },
+    )
     assert response.status_code == 422
 
 
 # ─── GET /{case_id} ──────────────────────────────────────────
+
 
 async def test_get_case_returns_200(client: AsyncClient):
     """GET /{case_id} devuelve el caso persistido."""
@@ -201,7 +245,10 @@ async def test_get_case_returns_200(client: AsyncClient):
 
 async def test_get_case_returns_404_for_missing(client: AsyncClient):
     """GET /{case_id} devuelve 404 si el caso no existe."""
-    with patch("app.routes.clinical.ClinicalCaseRepository.get_by_id", new=AsyncMock(return_value=None)):
+    with patch(
+        "app.routes.clinical.ClinicalCaseRepository.get_by_id",
+        new=AsyncMock(return_value=None),
+    ):
         response = await client.get("/clinical-case/99999")
 
     assert response.status_code == 404

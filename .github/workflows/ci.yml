@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  GROQ_API_KEY: test-groq-key
+  OPENAI_API_KEY: test-openai-key
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
