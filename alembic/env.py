@@ -24,6 +24,7 @@ target_metadata:
   Le decimos a Alembic cuál es nuestro schema. Sin esto no puede comparar.
 """
 
+import os
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
@@ -32,6 +33,14 @@ from alembic import context
 from app.db.models import Base
 
 config = context.config
+
+
+def _get_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    return database_url.replace("+asyncpg", "+psycopg")
+
+
+config.set_main_option("sqlalchemy.url", _get_database_url())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

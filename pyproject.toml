@@ -9,6 +9,7 @@ dependencies = [
     "pydantic==2.10.4",
     "pydantic-settings==2.7.0",
     "python-dotenv==1.0.1",
+    "alembic>=1.14.0",
     "openai>=2.30.0",
     # Fase 3: LangChain Core + providers
     # langchain-core: el motor de LCEL (el operador |, los Runnables)

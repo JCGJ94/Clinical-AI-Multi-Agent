@@ -29,6 +29,7 @@ Todo lo que ponés después del yield se ejecuta cuando se detiene.
 
 import time
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -46,18 +47,39 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
+def _mark_startup_state(app: FastAPI, *, completed: bool, error: str | None) -> None:
+    app.state.startup_completed = completed
+    app.state.startup_error = error
+
+
+async def _initialize_database(init_mode: str) -> None:
+    if init_mode != "create_all":
+        return
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # STARTUP
     # setup_logging ANTES de cualquier otra inicialización para que
     # todos los eventos de startup queden registrados.
     # debug=settings.debug → DEBUG en desarrollo, INFO en producción.
-    setup_logging(debug=settings.debug)
+    runtime_settings = get_settings()
+    setup_logging(debug=runtime_settings.debug)
+    _mark_startup_state(app, completed=False, error=None)
 
-    # create_all(): crea tablas si no existen — idempotente (no falla si ya existen)
-    # Útil en dev y tests. En prod: usar `alembic upgrade head` en lugar de esto.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        # create_all(): crea tablas si no existen — idempotente (no falla si ya existen)
+        # Útil en dev y tests. En prod: usar `alembic upgrade head` en lugar de esto.
+        await _initialize_database(runtime_settings.startup_db_init_mode)
+    except Exception as exc:
+        _mark_startup_state(app, completed=False, error=str(exc))
+        if runtime_settings.fail_startup_on_init_error:
+            raise
+    else:
+        _mark_startup_state(app, completed=True, error=None)
 
     yield  # la app corre acá
 
@@ -65,16 +87,20 @@ async def lifespan(app: FastAPI):
     # Cerramos el engine correctamente — libera conexiones del pool
     await engine.dispose()
 
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     debug=settings.debug,
     lifespan=lifespan,
 )
+_mark_startup_state(app, completed=False, error=None)
 
 
 @app.exception_handler(ClinicalBaseError)
-async def clinical_error_handler(request: Request, exc: ClinicalBaseError) -> JSONResponse:
+async def clinical_error_handler(
+    request: Request, exc: ClinicalBaseError
+) -> JSONResponse:
     """
     Handler global para todas las excepciones del sistema clínico.
 

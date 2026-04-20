@@ -55,10 +55,6 @@ AGENTS.md
 CHANGELOG.md
 LICENSE
 
-# ─── Alembic (si está) — se maneja aparte ────────────────────
-alembic
-alembic.ini
-
 # ─── Sistema operativo ──────────────────────────────────────
 .DS_Store
 Thumbs.db

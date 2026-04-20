@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     app_name: str = "Clinical AI Multi-Agent"
     app_version: str = "0.1.0"
     debug: bool = False
+    app_env: str = "development"
+    startup_db_init_mode: str = "create_all"
+    readiness_check_db: bool = True
+    health_expose_details: bool = True
+    fail_startup_on_init_error: bool = True
 
     # LLM Providers (todos opcionales — usás el que tengas)
     openai_api_key: str = ""
@@ -47,7 +52,9 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
 
     # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/clinical_ai"
+    database_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/clinical_ai"
+    )
 
 
 @lru_cache

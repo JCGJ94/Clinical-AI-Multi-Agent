@@ -30,6 +30,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Layer 2 — código de la app (cambia seguido, no invalida el layer de deps)
 COPY app/ ./app/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini
 
 # ─── Stage 2: runtime ───────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
@@ -47,6 +49,8 @@ RUN groupadd --system --gid 1001 appuser \
 # Copiamos el venv y el código desde el builder
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 COPY --from=builder --chown=appuser:appuser /app/app /app/app
+COPY --from=builder --chown=appuser:appuser /app/alembic /app/alembic
+COPY --from=builder --chown=appuser:appuser /app/alembic.ini /app/alembic.ini
 
 USER appuser
 
