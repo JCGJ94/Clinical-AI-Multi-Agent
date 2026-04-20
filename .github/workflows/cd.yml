@@ -1,5 +1,8 @@
 name: CD
 
+env:
+  GHCR_NAMESPACE: jcgj94
+
 on:
   workflow_run:
     workflows:
@@ -36,7 +39,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: ${{ env.GHCR_NAMESPACE }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
@@ -46,8 +49,8 @@ jobs:
           file: docker/Dockerfile.api
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/clinical-ai-api:latest
-            ghcr.io/${{ github.repository_owner }}/clinical-ai-api:sha-${{ github.event.workflow_run.head_sha }}
+            ghcr.io/${{ env.GHCR_NAMESPACE }}/clinical-ai-api:latest
+            ghcr.io/${{ env.GHCR_NAMESPACE }}/clinical-ai-api:sha-${{ github.event.workflow_run.head_sha }}
 
       - name: Build and push Indexer image
         uses: docker/build-push-action@v6
@@ -56,8 +59,8 @@ jobs:
           file: docker/Dockerfile.indexer
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/clinical-ai-indexer:latest
-            ghcr.io/${{ github.repository_owner }}/clinical-ai-indexer:sha-${{ github.event.workflow_run.head_sha }}
+            ghcr.io/${{ env.GHCR_NAMESPACE }}/clinical-ai-indexer:latest
+            ghcr.io/${{ env.GHCR_NAMESPACE }}/clinical-ai-indexer:sha-${{ github.event.workflow_run.head_sha }}
 
       - name: Deploy on VPS over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -70,7 +73,7 @@ jobs:
           envs: GIT_SHA,GHCR_USER,GHCR_TOKEN
           script: |
             export GIT_SHA=${{ github.event.workflow_run.head_sha }}
-            export GHCR_USER=${{ github.repository_owner }}
+            export GHCR_USER=${{ env.GHCR_NAMESPACE }}
             export GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}'
             cd /opt/apps/clinical-ai
             bash ./scripts/deploy.sh

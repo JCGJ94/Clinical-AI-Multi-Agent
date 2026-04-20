@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/JCGJ94/clinical-ai-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/jcgj94/clinical-ai-api:${IMAGE_TAG:-latest}
     build: null
     env_file:
       - ../envs/.env.prod
@@ -25,7 +25,7 @@ services:
       - traefik.http.services.clinical-ai.loadbalancer.server.port=8000
 
   migrator:
-    image: ghcr.io/JCGJ94/clinical-ai-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/jcgj94/clinical-ai-api:${IMAGE_TAG:-latest}
     env_file:
       - ../envs/.env.prod
     command: ["alembic", "upgrade", "head"]
@@ -38,7 +38,7 @@ services:
       - tools
 
   indexer:
-    image: ghcr.io/JCGJ94/clinical-ai-indexer:${IMAGE_TAG:-latest}
+    image: ghcr.io/jcgj94/clinical-ai-indexer:${IMAGE_TAG:-latest}
     build: null
     env_file:
       - ../envs/.env.prod
