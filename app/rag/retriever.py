@@ -83,6 +83,7 @@ def get_vector_store() -> PGVector:
         embeddings=get_embeddings(),
         collection_name=COLLECTION_NAME,
         connection=_get_sync_connection_string(),
+        create_extension=False,
         use_jsonb=True,  # metadata guardada como JSONB — permite filtrar por categoría
     )
 
@@ -95,6 +96,7 @@ def get_async_vector_store() -> PGVector:
         embeddings=get_embeddings(),
         collection_name=COLLECTION_NAME,
         connection=_get_async_connection_string(),
+        create_extension=False,
         use_jsonb=True,
         async_mode=True,
     )
