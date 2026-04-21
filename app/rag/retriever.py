@@ -44,7 +44,7 @@ from app.core.config import get_settings
 COLLECTION_NAME = "clinical_docs"
 
 
-def _get_connection_string() -> str:
+def _get_sync_connection_string() -> str:
     """
     PGVector usa psycopg (sync), no asyncpg.
     La URL de la config tiene +asyncpg — la reemplazamos aquí.
@@ -56,6 +56,17 @@ def _get_connection_string() -> str:
     """
     settings = get_settings()
     return settings.database_url.replace("+asyncpg", "+psycopg")
+
+
+def _get_async_connection_string() -> str:
+    """
+    Devuelve la URL async original para los paths que usan ainvoke()/async search.
+
+    Los agentes RAG se ejecutan con chains async, así que el vector store también
+    tiene que inicializarse en modo async para que LangChain cree _async_engine.
+    """
+    settings = get_settings()
+    return settings.database_url
 
 
 def get_vector_store() -> PGVector:
@@ -71,8 +82,21 @@ def get_vector_store() -> PGVector:
     return PGVector(
         embeddings=get_embeddings(),
         collection_name=COLLECTION_NAME,
-        connection=_get_connection_string(),
+        connection=_get_sync_connection_string(),
         use_jsonb=True,  # metadata guardada como JSONB — permite filtrar por categoría
+    )
+
+
+def get_async_vector_store() -> PGVector:
+    """
+    Crea un PGVector en modo async para retrievers usados desde chains async.
+    """
+    return PGVector(
+        embeddings=get_embeddings(),
+        collection_name=COLLECTION_NAME,
+        connection=_get_async_connection_string(),
+        use_jsonb=True,
+        async_mode=True,
     )
 
 
@@ -86,7 +110,7 @@ def get_retriever(k: int = 3) -> VectorStoreRetriever:
     El Retriever es un Runnable — puede ser parte de una chain:
       retriever | prompt | llm | parser
     """
-    return get_vector_store().as_retriever(
+    return get_async_vector_store().as_retriever(
         search_kwargs={"k": k},
     )
 
@@ -100,5 +124,5 @@ async def index_documents_async(documents: list) -> None:
 
     Solo necesitás correr esto UNA VEZ (o cuando actualicés los documentos).
     """
-    store = get_vector_store()
+    store = get_async_vector_store()
     await store.aadd_documents(documents)
