@@ -170,6 +170,33 @@ class LLMProviderError(ClinicalBaseError):
         super().__init__(f"{prefix}Error del proveedor LLM: {message}")
 
 
+class ProviderQuotaError(LLMProviderError):
+    """
+    Se lanza cuando el proveedor de LLM rechaza la solicitud por quota agotada.
+
+    ¿Cuándo usarla?
+    ────────────────
+    Específicamente cuando openai.RateLimitError contiene el código
+    "insufficient_quota" — es decir, el plan/crédito del usuario se agotó.
+
+    ¿Por qué separar de LLMProviderError?
+    ──────────────────────────────────────
+    LLMProviderError (rate limit temporal) → ES retryable (429 con backoff)
+    ProviderQuotaError (quota agotada)     → NO es retryable — el problema
+    persiste hasta recargar créditos. Reintentar solo genera más errores.
+
+    Mapeo HTTP:
+      ProviderQuotaError → 503 Service Unavailable
+      (el servicio externo no está disponible por razones de configuración)
+
+    El decorator @async_retry NO debe reintentar ProviderQuotaError.
+    El handler de FastAPI devuelve 503 para este tipo.
+    """
+
+    def __init__(self, message: str, provider: str | None = None) -> None:
+        super().__init__(message=message, provider=provider)
+
+
 class RAGRetrievalError(ClinicalBaseError):
     """
     Se lanza cuando el pipeline RAG falla al recuperar contexto del vector store.

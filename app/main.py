@@ -34,7 +34,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.core.exceptions import ClinicalBaseError
+from app.core.exceptions import (
+    ClinicalBaseError,
+    ProviderQuotaError,
+    LLMProviderError,
+    RAGRetrievalError,
+    AllAgentsFailedError,
+    AgentExecutionError,
+    TriageError,
+)
 from app.core.logging import setup_logging, get_logger
 from app.routes.health import router as health_router
 from app.routes.clinical import router as clinical_router
@@ -97,6 +105,37 @@ app = FastAPI(
 _mark_startup_state(app, completed=False, error=None)
 
 
+# Mapa de tipo de excepción → status HTTP correcto.
+#
+# ¿Por qué no siempre 500?
+# ─────────────────────────
+# HTTP 500 significa "el servidor falló por un bug interno".
+# Pero muchos de nuestros errores son fallas de SERVICIOS EXTERNOS —
+# no hay bug en el código, el proveedor simplemente no está disponible.
+#
+# La semántica correcta:
+#   503 Service Unavailable → el servicio externo (LLM, pgvector) no está disponible
+#   500 Internal Server Error → fallo interno del servidor (todos los agentes fallaron,
+#                               o hubo un error de ejecución inesperado)
+#   422 Unprocessable Entity → los datos del request son válidos sintácticamente
+#                              pero no semánticamente (triage no puede parsear el caso)
+#
+# La MRO (Method Resolution Order) de Python importa acá:
+# ProviderQuotaError es subclase de LLMProviderError → debe ir ANTES en el map.
+# isinstance() busca de forma lineal, así que el orden de las keys no importa en
+# el dict, pero sí importa la forma en que iteramos el map en el handler.
+#
+# Usamos type(exc) para match exacto + fallback a issubclass para subclases.
+_STATUS_MAP: dict[type[ClinicalBaseError], int] = {
+    ProviderQuotaError:   503,
+    LLMProviderError:     503,
+    RAGRetrievalError:    503,
+    AllAgentsFailedError: 500,
+    AgentExecutionError:  500,
+    TriageError:          422,
+}
+
+
 @app.exception_handler(ClinicalBaseError)
 async def clinical_error_handler(
     request: Request, exc: ClinicalBaseError
@@ -121,18 +160,36 @@ async def clinical_error_handler(
     Este formato permite al cliente hacer:
       if error.error == "AllAgentsFailedError": mostrar_alerta_critica()
       if error.error == "LLMProviderError": mostrar_retry_button()
+      if error.error == "ProviderQuotaError": mostrar_recarga_creditos()
 
     type(exc).__name__ devuelve el nombre de la clase de la excepción.
     Para AgentExecutionError → "AgentExecutionError"
     Para AllAgentsFailedError → "AllAgentsFailedError"
     Así el cliente puede discriminar sin hardcodear mensajes.
+
+    ¿Cómo determinamos el status_code?
+    ────────────────────────────────────
+    Iteramos _STATUS_MAP usando isinstance() para respetar la herencia.
+    ProviderQuotaError es subclase de LLMProviderError — sin isinstance(),
+    si la key fuera LLMProviderError, matchearía primero y devolvería 503
+    igualmente, pero perderíamos la especificidad del tipo.
+
+    El fallback es 500 para cualquier ClinicalBaseError no mapeada.
     """
+    # isinstance respeta herencia: ProviderQuotaError matchea LLMProviderError también.
+    # Iteramos en orden de inserción del dict (Python 3.7+) — como ProviderQuotaError
+    # está ANTES que LLMProviderError en _STATUS_MAP, siempre matchea primero.
+    status_code = next(
+        (code for exc_type, code in _STATUS_MAP.items() if isinstance(exc, exc_type)),
+        500,  # fallback para ClinicalBaseError no mapeada
+    )
+
     return JSONResponse(
-        status_code=500,
+        status_code=status_code,
         content={
             "error": type(exc).__name__,
             "detail": exc.message,
-            "status_code": 500,
+            "status_code": status_code,
         },
     )
 

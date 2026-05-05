@@ -125,6 +125,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     GROQ = "groq"
     LMSTUDIO = "lmstudio"
+    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 def create_llm(temperature: float = 0.2) -> BaseChatModel:
@@ -206,6 +207,19 @@ def create_llm(temperature: float = 0.2) -> BaseChatModel:
         # Requiere OPENAI_API_KEY en .env
         return ChatOpenAI(
             api_key=settings.openai_api_key,
+            model=settings.llm_model,
+            temperature=temperature,
+            callbacks=callbacks,
+        )
+
+    if provider == LLMProvider.OPENAI_COMPATIBLE:
+        # Proveedor genérico compatible con la API de OpenAI.
+        # Ejemplos: Nvidia NIM, DeepSeek, Mistral AI, Anyscale, etc.
+        # Requiere LLM_BASE_URL y LLM_API_KEY en .env.
+        # El cliente es ChatOpenAI pero apuntando a otro endpoint.
+        return ChatOpenAI(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
             model=settings.llm_model,
             temperature=temperature,
             callbacks=callbacks,

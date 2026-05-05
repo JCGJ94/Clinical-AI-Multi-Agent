@@ -40,16 +40,27 @@ class Settings(BaseSettings):
     groq_base_url: str = "https://api.groq.com/openai/v1"
     lmstudio_base_url: str = "http://localhost:1234/v1"
 
-    # Provider activo: "openai" | "groq" | "lmstudio"
+    # Provider activo: "openai" | "groq" | "lmstudio" | "openai_compatible"
     # El tipo es str para evitar dependencia circular con app.core.llm.
     # La validación del valor ocurre en create_llm() usando LLMProvider enum.
     llm_provider: str = "groq"
     llm_model: str = "llama-3.3-70b-versatile"  # default para Groq
 
+    # Proveedor genérico compatible con OpenAI (Nvidia NIM, DeepSeek, etc.)
+    # Solo se usa cuando llm_provider = "openai_compatible".
+    # LLM_BASE_URL: endpoint de la API (ej: https://integrate.api.nvidia.com/v1)
+    # LLM_API_KEY: clave de acceso del proveedor compatible
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+
     # Embeddings (Fase 4: RAG)
     # text-embedding-3-small: modelo de OpenAI para generar embeddings
     # 1536 dimensiones, buena calidad/precio, compatible con pgvector
     embedding_model: str = "text-embedding-3-small"
+
+    # Proveedor de embeddings: "openai" | "lmstudio"
+    # "lmstudio" usa la API OpenAI-compatible con base_url del servidor local.
+    embedding_provider: str = "openai"
 
     # Database
     database_url: str = (

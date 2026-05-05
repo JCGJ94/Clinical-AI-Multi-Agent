@@ -80,7 +80,9 @@ from app.agents.pharmacology import PharmacologyAgent
 from app.agents.radiology import RadiologyAgent
 from app.agents.base import BaseAgent
 from app.models.clinical import AgentOutput, AnalyzeOutput, NivelUrgencia
-from app.core.exceptions import AgentExecutionError, AllAgentsFailedError
+import openai
+
+from app.core.exceptions import AgentExecutionError, AllAgentsFailedError, LLMProviderError, ProviderQuotaError
 from app.core.logging import get_logger
 
 logger: logging.Logger = get_logger(__name__)
@@ -194,6 +196,31 @@ async def _safe_run(agent: BaseAgent, agent_name: str, caso_clinico: str, timeou
     except AgentExecutionError:
         # Si ya es AgentExecutionError, re-lanzamos sin envolver de nuevo
         raise
+    except openai.RateLimitError as exc:
+        # openai.RateLimitError cubre dos casos muy distintos:
+        #   1. Rate limit temporal (429 Too Many Requests) → LLMProviderError (retryable)
+        #   2. Quota agotada (insufficient_quota)          → ProviderQuotaError (NO retryable)
+        #
+        # Inspeccionamos el body del error para distinguirlos.
+        # exc.body puede ser None si el proveedor no incluye JSON estructurado.
+        error_body = getattr(exc, "body", None) or {}
+        error_code = ""
+        if isinstance(error_body, dict):
+            nested = error_body.get("error", {})
+            if isinstance(nested, dict):
+                error_code = nested.get("code", "") or ""
+
+        # También revisamos el mensaje por si el código no está en body
+        error_message = str(exc).lower()
+
+        if error_code == "insufficient_quota" or "insufficient_quota" in error_message:
+            raise ProviderQuotaError(
+                message="La quota del proveedor LLM se agotó. Recargá créditos para continuar.",
+            ) from exc
+        else:
+            raise LLMProviderError(
+                message=f"Rate limit del proveedor LLM: {exc}",
+            ) from exc
     except Exception as exc:
         duration_ms = int((time.perf_counter() - start) * 1000)
         logger.warning(

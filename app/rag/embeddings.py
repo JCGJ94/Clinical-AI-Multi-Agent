@@ -16,32 +16,70 @@ sobre "dolor torácico" aunque no comparta ninguna palabra.
 Eso es imposible con un buscador tradicional (LIKE, ILIKE, FTS).
 Con embeddings, es trivial — solo calculás la distancia entre vectores.
 
-Modelo que usamos:
-  text-embedding-3-small (OpenAI)
-  - 1536 dimensiones
-  - Muy buena relación calidad/precio
-  - ~$0.02 por millón de tokens (prácticamente gratis)
-  - Funciona excelente para español clínico
+Proveedores soportados (EMBEDDING_PROVIDER en .env):
+  "openai"   → text-embedding-3-small (OpenAI Cloud, requiere OPENAI_API_KEY)
+               1536 dimensiones, buena relación calidad/precio
+               ~$0.02 por millón de tokens (prácticamente gratis)
 
-Alternativa local (sin internet, 100% privada):
-  nomic-embed-text (LM Studio)
-  - Cambiar a: OpenAIEmbeddings(base_url=lmstudio_url, api_key="lm-studio", model="nomic-embed-text")
+  "lmstudio" → nomic-embed-text u otro modelo local (LM Studio)
+               100% privado, sin internet, sin costo de API
+               Requiere LM Studio corriendo en http://localhost:1234/v1
+               La API es compatible con OpenAI — usamos el mismo cliente.
+
+Patrón Factory (mismo que app.core.llm):
+  get_embeddings() lee EMBEDDING_PROVIDER y devuelve el cliente correcto.
+  El tipo de retorno es Embeddings (base de LangChain) — el caller no
+  necesita saber qué proveedor se usa detrás.
 """
 
+from enum import Enum
+
 from langchain_openai import OpenAIEmbeddings
+
 from app.core.config import get_settings
+
+
+class EmbeddingProvider(str, Enum):
+    """
+    Enum de proveedores de embeddings soportados.
+
+    str, Enum permite comparar directamente con strings de .env:
+      EmbeddingProvider.OPENAI == "openai"  → True
+
+    Agregar un proveedor nuevo = agregar un miembro acá + un branch en get_embeddings().
+    """
+
+    OPENAI = "openai"
+    LMSTUDIO = "lmstudio"
 
 
 def get_embeddings() -> OpenAIEmbeddings:
     """
-    Devuelve el modelo de embeddings configurado.
+    Factory que devuelve el modelo de embeddings configurado en .env.
 
-    Necesitás tener OPENAI_API_KEY en tu .env para que funcione.
-    Para los tests no es necesario — usamos FakeEmbeddings.
+    Lee EMBEDDING_PROVIDER y construye la instancia correcta:
+      - "openai"   → OpenAIEmbeddings con api.openai.com
+      - "lmstudio" → OpenAIEmbeddings apuntando al servidor local de LM Studio
+
+    Para los tests no es necesario llamar esta función — usamos FakeEmbeddings.
     """
     settings = get_settings()
+    provider = settings.embedding_provider
 
+    if provider == EmbeddingProvider.LMSTUDIO:
+        # LM Studio expone una API compatible con OpenAI para embeddings.
+        # api_key="lm-studio" es el placeholder que espera LM Studio.
+        # El modelo por defecto es nomic-embed-text, pero puede configurarse.
+        return OpenAIEmbeddings(
+            base_url=settings.lmstudio_base_url,
+            api_key="lm-studio",
+            model=settings.embedding_model,
+        )
+
+    # Default: OpenAI Cloud
+    # Si el proveedor es "openai" o cualquier otro valor no reconocido,
+    # usamos el cliente estándar de OpenAI.
     return OpenAIEmbeddings(
         api_key=settings.openai_api_key,
-        model=settings.embedding_model,  # "text-embedding-3-small" por defecto
+        model=settings.embedding_model,
     )
