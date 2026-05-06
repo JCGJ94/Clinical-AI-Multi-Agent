@@ -38,6 +38,7 @@ Patrón Factory (mismo que app.core.llm):
 
 from enum import Enum
 
+from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from langchain_openai import OpenAIEmbeddings
 
 from app.core.config import get_settings
@@ -58,7 +59,7 @@ class EmbeddingProvider(str, Enum):
     OPENAI_COMPATIBLE = "openai_compatible"
 
 
-def get_embeddings() -> OpenAIEmbeddings:
+def get_embeddings() -> OpenAIEmbeddings | NVIDIAEmbeddings:
     """
     Factory que devuelve el modelo de embeddings configurado en .env.
 
@@ -72,12 +73,14 @@ def get_embeddings() -> OpenAIEmbeddings:
     provider = settings.embedding_provider
 
     if provider == EmbeddingProvider.OPENAI_COMPATIBLE:
-        # Nvidia NIM, Together.ai, u otra API compatible con OpenAI.
-        # Reutiliza LLM_BASE_URL y LLM_API_KEY — misma key que el LLM.
-        return OpenAIEmbeddings(
-            base_url=settings.llm_base_url,
+        # Nvidia NIM u otra API NIM-compatible.
+        # OpenAIEmbeddings envía input como array JSON, pero Nvidia NIM espera
+        # un string y el campo input_type — causando HTTP 500 en el servidor.
+        # NVIDIAEmbeddings de langchain-nvidia-ai-endpoints maneja ese protocolo.
+        return NVIDIAEmbeddings(
             api_key=settings.llm_api_key,
             model=settings.embedding_model,
+            nvidia_base_url=settings.llm_base_url,
         )
 
     if provider == EmbeddingProvider.LMSTUDIO:

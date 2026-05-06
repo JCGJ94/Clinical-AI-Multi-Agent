@@ -52,6 +52,8 @@ def make_mock_settings_for_embeddings(
     openai_api_key: str = "test-openai-key",
     lmstudio_base_url: str = "http://localhost:1234/v1",
     embedding_model: str = "text-embedding-3-small",
+    llm_api_key: str | None = None,
+    llm_base_url: str | None = None,
 ) -> MagicMock:
     """Stub de Settings para tests de get_embeddings()."""
     mock = MagicMock()
@@ -59,6 +61,8 @@ def make_mock_settings_for_embeddings(
     mock.openai_api_key = openai_api_key
     mock.lmstudio_base_url = lmstudio_base_url
     mock.embedding_model = embedding_model
+    mock.llm_api_key = llm_api_key
+    mock.llm_base_url = llm_base_url
     return mock
 
 
@@ -340,3 +344,38 @@ def test_get_embeddings_openai_default(MockOpenAIEmbeddings, mock_get_settings):
     # No debe pasar base_url para OpenAI (usa el default de OpenAI)
     assert "base_url" not in call_kwargs or call_kwargs.get("base_url") is None
     assert result is fake_instance
+
+
+# ─── T3: get_embeddings() con EMBEDDING_PROVIDER=openai_compatible ───────────────
+
+@patch("app.rag.embeddings.get_settings")
+def test_get_embeddings_openai_compatible_returns_nvidia_embeddings(mock_get_settings):
+    """
+    T3 — Con EMBEDDING_PROVIDER=openai_compatible, get_embeddings() devuelve
+    una instancia de NVIDIAEmbeddings (no OpenAIEmbeddings).
+
+    Nvidia NIM espera el campo input_type y un formato de input diferente
+    al que OpenAIEmbeddings envía. NVIDIAEmbeddings de langchain-nvidia-ai-endpoints
+    maneja ese protocolo correctamente.
+    """
+    from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
+
+    mock_get_settings.return_value = make_mock_settings_for_embeddings(
+        embedding_provider="openai_compatible",
+        llm_api_key="nvapi-test-key",
+        llm_base_url="https://integrate.api.nvidia.com/v1",
+        embedding_model="nvidia/llama-3.2-nemoretriever-300m-embed-v1",
+    )
+
+    with patch("app.rag.embeddings.NVIDIAEmbeddings") as MockNVIDIAEmbeddings:
+        fake_instance = MagicMock(spec=NVIDIAEmbeddings)
+        MockNVIDIAEmbeddings.return_value = fake_instance
+
+        result = get_embeddings()
+
+        MockNVIDIAEmbeddings.assert_called_once()
+        call_kwargs = MockNVIDIAEmbeddings.call_args[1]
+        assert call_kwargs["api_key"] == "nvapi-test-key"
+        assert call_kwargs["nvidia_base_url"] == "https://integrate.api.nvidia.com/v1"
+        assert call_kwargs["model"] == "nvidia/llama-3.2-nemoretriever-300m-embed-v1"
+        assert result is fake_instance
