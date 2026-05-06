@@ -88,9 +88,9 @@ from app.core.logging import get_logger
 logger: logging.Logger = get_logger(__name__)
 
 # Timeout en segundos por agente.
-# 30 segundos es generoso para llamadas LLM — ajustar según el provider.
-# Groq es rápido (~3-5s), OpenAI puede tardar más en picos de carga.
-AGENT_TIMEOUT: float = 30.0
+# 90 segundos para modelos grandes como Kimi K2.6 via Nvidia NIM.
+# Groq es rápido (~3-5s), modelos grandes pueden tardar 60-90s.
+AGENT_TIMEOUT: float = 90.0
 
 # Fallback cuando no llegan agentes_sugeridos del router.
 # Los agentes especialistas (Cardiology, Pharmacology, Radiology)
