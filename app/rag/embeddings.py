@@ -21,10 +21,14 @@ Proveedores soportados (EMBEDDING_PROVIDER en .env):
                1536 dimensiones, buena relación calidad/precio
                ~$0.02 por millón de tokens (prácticamente gratis)
 
-  "lmstudio" → nomic-embed-text u otro modelo local (LM Studio)
-               100% privado, sin internet, sin costo de API
-               Requiere LM Studio corriendo en http://localhost:1234/v1
-               La API es compatible con OpenAI — usamos el mismo cliente.
+  "lmstudio"          → nomic-embed-text u otro modelo local (LM Studio)
+                        100% privado, sin internet, sin costo de API
+                        Requiere LM Studio corriendo en http://localhost:1234/v1
+                        La API es compatible con OpenAI — usamos el mismo cliente.
+
+  "openai_compatible" → cualquier API compatible con OpenAI (Nvidia NIM, etc.)
+                        Reutiliza LLM_BASE_URL y LLM_API_KEY del .env.
+                        Ejemplo: nvidia/llama-3.2-nemoretriever-300m-embed-v1
 
 Patrón Factory (mismo que app.core.llm):
   get_embeddings() lee EMBEDDING_PROVIDER y devuelve el cliente correcto.
@@ -51,6 +55,7 @@ class EmbeddingProvider(str, Enum):
 
     OPENAI = "openai"
     LMSTUDIO = "lmstudio"
+    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 def get_embeddings() -> OpenAIEmbeddings:
@@ -65,6 +70,15 @@ def get_embeddings() -> OpenAIEmbeddings:
     """
     settings = get_settings()
     provider = settings.embedding_provider
+
+    if provider == EmbeddingProvider.OPENAI_COMPATIBLE:
+        # Nvidia NIM, Together.ai, u otra API compatible con OpenAI.
+        # Reutiliza LLM_BASE_URL y LLM_API_KEY — misma key que el LLM.
+        return OpenAIEmbeddings(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            model=settings.embedding_model,
+        )
 
     if provider == EmbeddingProvider.LMSTUDIO:
         # LM Studio expone una API compatible con OpenAI para embeddings.
