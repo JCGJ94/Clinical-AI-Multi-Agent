@@ -2,15 +2,15 @@
 name = "clinical-ai-multi-agent"
 version = "0.1.0"
 description = "Clinical AI Multi-Agent Backend"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.115.6",
-    "uvicorn[standard]==0.32.1",
-    "pydantic==2.10.4",
-    "pydantic-settings==2.7.0",
-    "python-dotenv==1.0.1",
+    "fastapi>=0.122.0,<1.0",
+    "uvicorn[standard]>=0.32.1,<1.0",
+    "pydantic>=2.10.4,<3.0",
+    "pydantic-settings>=2.7.0,<3.0",
+    "python-dotenv>=1.0.1,<2.0",
     "alembic>=1.14.0",
-    "openai>=2.30.0",
+    "openai>=2.40.0",
     # Fase 3: LangChain Core + providers
     # langchain-core: el motor de LCEL (el operador |, los Runnables)
     # langchain-openai: ChatOpenAI para OpenAI y LM Studio
@@ -23,7 +23,7 @@ dependencies = [
     # langchain-postgres: PGVector — vector store sobre PostgreSQL (no Pinecone, no Chroma)
     # psycopg[binary]: driver sync de PostgreSQL que usa PGVector internamente
     "langchain-text-splitters>=0.3.0",
-    "langchain-postgres>=0.0.12",
+    "langchain-postgres>=0.0.14",
     "psycopg[binary]>=3.1.0",
     # Fase 5: Nvidia NIM embeddings
     # NVIDIAEmbeddings maneja el protocolo específico de Nvidia NIM
@@ -35,7 +35,7 @@ dependencies = [
 dev = [
     "pytest==8.3.4",
     "pytest-asyncio==0.24.0",
-    "httpx==0.28.1",
+    "httpx2>=0.28.1",
 ]
 
 [tool.pytest.ini_options]
@@ -46,6 +46,6 @@ asyncio_default_fixture_loop_scope = "function"
 dev = [
     "pytest==8.3.4",
     "pytest-asyncio==0.24.0",
-    "httpx==0.28.1",
+    "httpx2>=0.28.1",
     "aiosqlite>=0.22.1",
 ]

@@ -157,7 +157,7 @@ async def test_rag_chain_returns_string(mock_create_llm, mock_get_retriever):
     ]
     mock_get_retriever.return_value = RunnableLambda(lambda _: fake_docs)
 
-    chain = build_rag_chain(k=2)
+    chain = await build_rag_chain(k=2)
     result = await chain.ainvoke({"caso_clinico": "Paciente 62 años con dolor torácico agudo."})
 
     assert isinstance(result, str)
@@ -192,7 +192,7 @@ async def test_rag_chain_passes_context_to_llm(mock_create_llm, mock_get_retriev
     ]
     mock_get_retriever.return_value = RunnableLambda(lambda _: fake_docs)
 
-    chain = build_rag_chain(k=1)
+    chain = await build_rag_chain(k=1)
     await chain.ainvoke({"caso_clinico": "Paciente con dolor torácico."})
 
     # El LLM fue llamado Y el contexto recuperado estaba en el mensaje

@@ -15,3 +15,9 @@ envs/.env.local
 envs/.env
 # Los *.example SÍ se commitean (repo auto-documentado)
 !envs/env.*.example
+
+# Agents Skills local/dev (los que se usan durante el desarrollo)
+.agents
+.atl
+.claude
+skills-lock.json

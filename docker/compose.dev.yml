@@ -16,7 +16,7 @@
 services:
   postgres:
     env_file:
-      - ../envs/.env.dev
+      - ../.env
     ports:
       # Mapeamos a 5433 porque el puerto 5432 puede estar ocupado por otro
       # postgres local (ejemplo: otra DB del usuario)
@@ -24,7 +24,7 @@ services:
 
   api:
     env_file:
-      - ../envs/.env.dev
+      - ../.env
     # Override del CMD: uvicorn con --reload para hot reload en dev.
     # En prod, este flag NUNCA se usa (consumo CPU + reinicia en archivos cambiados).
     command: >
@@ -46,7 +46,7 @@ services:
 
   indexer:
     env_file:
-      - ../envs/.env.dev
+      - ../.env
     volumes:
       # Montamos docs/ para que podás editar los .md y reindexar sin rebuild
       - ../docs:/app/docs:ro

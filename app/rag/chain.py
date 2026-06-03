@@ -83,7 +83,7 @@ def _format_docs(docs: list) -> str:
     )
 
 
-def build_rag_chain(k: int = 3):
+async def build_rag_chain(k: int = 3):
     """
     Construye la chain RAG completa.
 
@@ -94,12 +94,14 @@ def build_rag_chain(k: int = 3):
     Input esperado: {"caso_clinico": "Paciente de 62 años..."}
     Output: string con la respuesta del LLM fundamentada en los docs
 
+    Ahora es async porque get_retriever() es async (inicialización lazy del vector store).
+
     Requiere:
       - PostgreSQL corriendo (docker compose up)
       - Documentos indexados (correr el script de indexación)
-      - OPENAI_API_KEY para embeddings
+      - API key para embeddings
     """
-    retriever = get_retriever(k=k)
+    retriever = await get_retriever(k=k)
 
     # LLM — delegado a create_llm() (ver app/core/llm.py)
     # temperature=0.2 — balance entre precisión y capacidad de síntesis en RAG

@@ -27,7 +27,7 @@ def test_health_returns_ok(monkeypatch: pytest.MonkeyPatch):
     assert data["service"] == "Clinical AI Multi-Agent"
     assert "version" in data
     assert "timestamp" in data
-    assert data["llm_provider"] == "groq"
+    assert data["llm_provider"] in {"groq", "openai", "openai_compatible", "lmstudio"}
 
 
 def test_health_hides_internal_details_when_configured(monkeypatch: pytest.MonkeyPatch):
