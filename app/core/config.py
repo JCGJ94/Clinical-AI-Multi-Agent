@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # "lmstudio" usa la API OpenAI-compatible con base_url del servidor local.
     embedding_provider: str = "openai"
 
+    # Embeddings dimensions (must match the model output size)
+    # nvidia/nv-embedqa-e5-v5 → 1024, text-embedding-3-small → 1536
+    embedding_dimensions: int = 1024
+
     # Database
     database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5432/clinical_ai"

@@ -1,95 +1,121 @@
 """
-Tests for retriever.py — updated for PGVectorStore singleton migration.
+Tests for retriever.py — PGVectorStore singleton (langchain-postgres >= 0.0.14 API).
 
-Covers:
-- psycopg3 connection string derivation
-- async singleton get_vector_store() — single init regardless of concurrency
-- concurrency safety: 3 concurrent callers → acreate called exactly once
-- get_retriever() async wrapper
+API contract:
+  - PGEngine.from_connection_string(url=asyncpg_url) — connection pool
+  - engine.init_vectorstore_table(table_name, vector_size) — idempotent table creation
+  - await PGVectorStore.create(engine, table_name, embedding_service) — store
+  - Singleton: create called exactly once regardless of concurrency
 """
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 DB_URL_ASYNCPG = "postgresql+asyncpg://postgres:postgres@localhost:5432/clinical_ai"
-DB_URL_PSYCOPG = "postgresql+psycopg://postgres:postgres@localhost:5432/clinical_ai"
+
+FAKE_SETTINGS = SimpleNamespace(
+    database_url=DB_URL_ASYNCPG,
+    embedding_dimensions=1024,
+)
 
 
-# ─── Connection string helpers ─────────────────────────────────────────────────
-
-def test_psycopg_url_derived_from_asyncpg_url():
-    """
-    get_vector_store() must derive postgresql+psycopg:// from the configured URL.
-    The module-level helper _get_sync_connection_string (or equivalent logic inside
-    get_vector_store) MUST replace +asyncpg with +psycopg.
-    """
-    from app.rag import retriever
-
-    settings = SimpleNamespace(database_url=DB_URL_ASYNCPG)
-    with patch("app.rag.retriever.get_settings", return_value=settings):
-        # The function was renamed — call the actual helper that still exists
-        result = retriever._get_sync_connection_string()
-
-    assert result == DB_URL_PSYCOPG
+def _make_fake_engine():
+    engine = MagicMock()
+    engine.init_vectorstore_table = MagicMock()
+    return engine
 
 
-# ─── RED: async singleton — acreate called exactly once ───────────────────────
+def _make_fake_store():
+    store = MagicMock()
+    store.as_retriever = MagicMock(return_value=object())
+    return store
 
-async def test_get_vector_store_singleton_calls_acreate_once():
-    """
-    Two sequential calls to get_vector_store() must reuse the same instance.
-    PGVectorStore.acreate must be called exactly once (singleton guarantee).
-    """
-    import importlib
+
+# ─── Engine uses asyncpg URL ──────────────────────────────────────────────────
+
+async def test_pg_engine_receives_asyncpg_url():
+    """PGEngine.from_connection_string must receive the original asyncpg URL."""
     import app.rag.retriever as retriever_module
 
-    # Reset module singleton state before test
     retriever_module._store = None
+    retriever_module._engine = None
 
-    fake_store = MagicMock()
-    fake_store.as_retriever = MagicMock(return_value=object())
-
-    settings = SimpleNamespace(database_url=DB_URL_ASYNCPG)
+    fake_engine = _make_fake_engine()
+    fake_store = _make_fake_store()
 
     with (
-        patch("app.rag.retriever.get_settings", return_value=settings),
+        patch("app.rag.retriever.get_settings", return_value=FAKE_SETTINGS),
         patch("app.rag.retriever.get_embeddings", return_value=object()),
+        patch("app.rag.retriever.PGEngine") as MockPGEngine,
         patch("app.rag.retriever.PGVectorStore") as MockPGVectorStore,
+        patch("app.rag.retriever.asyncio.to_thread", new_callable=AsyncMock),
     ):
-        MockPGVectorStore.acreate = AsyncMock(return_value=fake_store)
+        MockPGEngine.from_connection_string.return_value = fake_engine
+        MockPGVectorStore.create = AsyncMock(return_value=fake_store)
+
+        await retriever_module.get_vector_store()
+
+        MockPGEngine.from_connection_string.assert_called_once_with(url=DB_URL_ASYNCPG)
+
+    retriever_module._store = None
+    retriever_module._engine = None
+
+
+# ─── Singleton: create called exactly once ───────────────────────────────────
+
+async def test_get_vector_store_singleton_calls_create_once():
+    """Two sequential calls must reuse the same instance — create called once."""
+    import app.rag.retriever as retriever_module
+
+    retriever_module._store = None
+    retriever_module._engine = None
+
+    fake_engine = _make_fake_engine()
+    fake_store = _make_fake_store()
+
+    with (
+        patch("app.rag.retriever.get_settings", return_value=FAKE_SETTINGS),
+        patch("app.rag.retriever.get_embeddings", return_value=object()),
+        patch("app.rag.retriever.PGEngine") as MockPGEngine,
+        patch("app.rag.retriever.PGVectorStore") as MockPGVectorStore,
+        patch("app.rag.retriever.asyncio.to_thread", new_callable=AsyncMock),
+    ):
+        MockPGEngine.from_connection_string.return_value = fake_engine
+        MockPGVectorStore.create = AsyncMock(return_value=fake_store)
 
         store1 = await retriever_module.get_vector_store()
         store2 = await retriever_module.get_vector_store()
 
-    assert store1 is store2, "get_vector_store() must return the same singleton instance"
-    MockPGVectorStore.acreate.assert_called_once(), "acreate must be called exactly once"
+    assert store1 is store2, "must return the same singleton instance"
+    MockPGVectorStore.create.assert_called_once()
 
-    # Cleanup
     retriever_module._store = None
+    retriever_module._engine = None
 
 
-async def test_get_vector_store_concurrent_calls_acreate_exactly_once():
-    """
-    Three concurrent callers via asyncio.gather must trigger acreate exactly once.
-    This is the core race-condition guard from the spec.
-    """
+# ─── Concurrency: 3 concurrent callers → create called exactly once ──────────
+
+async def test_get_vector_store_concurrent_calls_create_exactly_once():
+    """Three concurrent callers via asyncio.gather must trigger create exactly once."""
     import app.rag.retriever as retriever_module
 
-    # Reset module singleton state before test
     retriever_module._store = None
+    retriever_module._engine = None
 
-    fake_store = MagicMock()
-
-    settings = SimpleNamespace(database_url=DB_URL_ASYNCPG)
+    fake_engine = _make_fake_engine()
+    fake_store = _make_fake_store()
 
     with (
-        patch("app.rag.retriever.get_settings", return_value=settings),
+        patch("app.rag.retriever.get_settings", return_value=FAKE_SETTINGS),
         patch("app.rag.retriever.get_embeddings", return_value=object()),
+        patch("app.rag.retriever.PGEngine") as MockPGEngine,
         patch("app.rag.retriever.PGVectorStore") as MockPGVectorStore,
+        patch("app.rag.retriever.asyncio.to_thread", new_callable=AsyncMock),
     ):
-        MockPGVectorStore.acreate = AsyncMock(return_value=fake_store)
+        MockPGEngine.from_connection_string.return_value = fake_engine
+        MockPGVectorStore.create = AsyncMock(return_value=fake_store)
 
         results = await asyncio.gather(
             retriever_module.get_vector_store(),
@@ -97,53 +123,59 @@ async def test_get_vector_store_concurrent_calls_acreate_exactly_once():
             retriever_module.get_vector_store(),
         )
 
-    assert all(r is fake_store for r in results), "All callers must get the same instance"
-    assert MockPGVectorStore.acreate.call_count == 1, (
-        f"acreate must be called exactly once, got {MockPGVectorStore.acreate.call_count}"
+    assert all(r is fake_store for r in results), "all callers must get the same instance"
+    assert MockPGVectorStore.create.call_count == 1, (
+        f"create must be called exactly once, got {MockPGVectorStore.create.call_count}"
     )
 
-    # Cleanup
     retriever_module._store = None
+    retriever_module._engine = None
 
 
-async def test_get_vector_store_uses_psycopg_connection_string():
-    """
-    get_vector_store() must pass a postgresql+psycopg:// URL to PGVectorStore.acreate,
-    NOT postgresql+asyncpg://.
-    """
+# ─── init_vectorstore_table uses correct args ─────────────────────────────────
+
+async def test_init_vectorstore_table_called_with_correct_args():
+    """init_vectorstore_table must receive table name and embedding_dimensions from settings."""
     import app.rag.retriever as retriever_module
 
     retriever_module._store = None
+    retriever_module._engine = None
 
-    fake_store = MagicMock()
-    settings = SimpleNamespace(database_url=DB_URL_ASYNCPG)
+    fake_engine = _make_fake_engine()
+    fake_store = _make_fake_store()
+    captured = {}
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        captured["fn"] = fn
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        fn(*args, **kwargs)
 
     with (
-        patch("app.rag.retriever.get_settings", return_value=settings),
+        patch("app.rag.retriever.get_settings", return_value=FAKE_SETTINGS),
         patch("app.rag.retriever.get_embeddings", return_value=object()),
+        patch("app.rag.retriever.PGEngine") as MockPGEngine,
         patch("app.rag.retriever.PGVectorStore") as MockPGVectorStore,
+        patch("app.rag.retriever.asyncio.to_thread", side_effect=fake_to_thread),
     ):
-        MockPGVectorStore.acreate = AsyncMock(return_value=fake_store)
+        MockPGEngine.from_connection_string.return_value = fake_engine
+        MockPGVectorStore.create = AsyncMock(return_value=fake_store)
+
         await retriever_module.get_vector_store()
 
-        call_kwargs = MockPGVectorStore.acreate.call_args.kwargs
-        connection = call_kwargs.get("connection", "")
+    fake_engine.init_vectorstore_table.assert_called_once_with(
+        table_name="clinical_docs",
+        vector_size=1024,
+    )
 
-    assert "+asyncpg" not in connection, "Must NOT use asyncpg driver for PGVectorStore"
-    assert "+psycopg" in connection, "Must use psycopg3 driver for PGVectorStore"
-    assert connection == DB_URL_PSYCOPG
-
-    # Cleanup
     retriever_module._store = None
+    retriever_module._engine = None
 
 
-# ─── RED: async get_retriever() ───────────────────────────────────────────────
+# ─── get_retriever is async ───────────────────────────────────────────────────
 
 async def test_get_retriever_is_async_and_returns_retriever():
-    """
-    get_retriever() must be an async function that awaits get_vector_store()
-    and returns store.as_retriever(...).
-    """
+    """get_retriever() must be async and return store.as_retriever(k=...)."""
     import app.rag.retriever as retriever_module
     import inspect
 
@@ -152,23 +184,27 @@ async def test_get_retriever_is_async_and_returns_retriever():
     )
 
     retriever_module._store = None
+    retriever_module._engine = None
 
-    fake_store = MagicMock()
+    fake_engine = _make_fake_engine()
     fake_retriever = object()
+    fake_store = MagicMock()
     fake_store.as_retriever = MagicMock(return_value=fake_retriever)
 
-    settings = SimpleNamespace(database_url=DB_URL_ASYNCPG)
-
     with (
-        patch("app.rag.retriever.get_settings", return_value=settings),
+        patch("app.rag.retriever.get_settings", return_value=FAKE_SETTINGS),
         patch("app.rag.retriever.get_embeddings", return_value=object()),
+        patch("app.rag.retriever.PGEngine") as MockPGEngine,
         patch("app.rag.retriever.PGVectorStore") as MockPGVectorStore,
+        patch("app.rag.retriever.asyncio.to_thread", new_callable=AsyncMock),
     ):
-        MockPGVectorStore.acreate = AsyncMock(return_value=fake_store)
+        MockPGEngine.from_connection_string.return_value = fake_engine
+        MockPGVectorStore.create = AsyncMock(return_value=fake_store)
+
         result = await retriever_module.get_retriever(k=5)
 
     assert result is fake_retriever
     fake_store.as_retriever.assert_called_once_with(search_kwargs={"k": 5})
 
-    # Cleanup
     retriever_module._store = None
+    retriever_module._engine = None
