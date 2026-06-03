@@ -58,12 +58,16 @@ async def get_vector_store() -> PGVectorStore:
             settings = get_settings()
             engine = _get_engine()
 
-            # Crea la tabla si no existe — idempotente, safe en restart
-            await asyncio.to_thread(
-                engine.init_vectorstore_table,
-                table_name=TABLE_NAME,
-                vector_size=settings.embedding_dimensions,
-            )
+            # Crea la tabla si no existe — init_vectorstore_table no usa IF NOT EXISTS,
+            # así que capturamos DuplicateTableError cuando la tabla ya existe (restart, indexer previo)
+            try:
+                await asyncio.to_thread(
+                    engine.init_vectorstore_table,
+                    table_name=TABLE_NAME,
+                    vector_size=settings.embedding_dimensions,
+                )
+            except Exception:
+                pass  # tabla ya existe — continuar con la existente
 
             _store = await PGVectorStore.create(
                 engine=engine,
