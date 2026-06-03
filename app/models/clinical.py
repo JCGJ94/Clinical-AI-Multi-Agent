@@ -347,7 +347,7 @@ class AgentOutput(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "agent_name": "CardiologyAgent",
+                    "agent_name": "<agent-class-name>",
                     "summary": "Presentación compatible con síndrome coronario agudo tipo IAM",
                     "findings": ["dolor torácico opresivo", "irradiación a brazo izquierdo", "diaforesis"],
                     "red_flags": ["posible IAM STEMI", "inestabilidad hemodinámica"],

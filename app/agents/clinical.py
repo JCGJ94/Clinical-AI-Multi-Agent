@@ -19,6 +19,8 @@
 ╚══════════════════════════════════════════════════════════════╝
 """
 
+from typing import ClassVar
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -58,7 +60,7 @@ class ClinicalAgent(BaseAgent):
     """
     ClinicalAgent — Fase 5: LangChain LCEL + RAG.
 
-    Chain completa:
+    Chain completa (lazy — se construye en _ensure_chain() la primera vez):
       string input (caso_clinico)
         ↓
       {
@@ -76,47 +78,60 @@ class ClinicalAgent(BaseAgent):
     Porque el RETRIEVER necesita un string para buscar por similitud semántica.
     Si le pasás un dict {"caso_clinico": "..."}, busca el dict como texto.
     Con un string limpio, la búsqueda semántica funciona correctamente.
+
+    NAME: constante de clase para asignación determinista de agent_name.
+    No dependemos del LLM para saber quién somos.
     """
+
+    NAME: ClassVar[str] = "ClinicalAgent"
 
     def __init__(self) -> None:
         # ── Parser ───────────────────────────────────────────────────────────
-        parser = PydanticOutputParser(pydantic_object=AgentOutput)
+        self._parser = PydanticOutputParser(pydantic_object=AgentOutput)
 
         # ── Prompt con {context} y {format_instructions} ─────────────────────
-        prompt = ChatPromptTemplate.from_messages([
+        self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
             ("human", "{caso_clinico}"),
-        ]).partial(format_instructions=parser.get_format_instructions())
+        ]).partial(format_instructions=self._parser.get_format_instructions())
 
         # ── LLM (multi-provider via Factory) ─────────────────────────────────
         # temperature=0.2 — balance entre precisión y capacidad de síntesis
         # create_llm() centraliza la selección de proveedor (ver app/core/llm.py)
-        llm = create_llm(temperature=0.2)
+        self._llm = create_llm(temperature=0.2)
 
-        # ── Retriever ─────────────────────────────────────────────────────────
-        #
-        # get_retriever() se conecta a PGVector (necesita PostgreSQL corriendo).
-        # En tests se mockea para evitar la conexión real.
-        #
-        retriever = get_retriever(k=3)
+        # ── Chain lazy — se construye en _ensure_chain() al primer run() ─────
+        self._chain = None
 
-        # ── Chain RAG (LCEL) ──────────────────────────────────────────────────
-        #
-        # El dict {context, caso_clinico} se ejecuta EN PARALELO:
-        #   - retriever busca los 3 chunks más relevantes → format_docs → string
-        #   - RunnablePassthrough pasa el caso_clinico original sin cambios
-        # Ambos resultados llegan al prompt como variables.
-        #
-        self.chain = (
+    async def _ensure_chain(self) -> None:
+        """
+        Construye la chain RAG en la primera llamada a run().
+
+        El retriever se inicializa aquí (async) para evitar llamadas
+        sincrónicas bloqueantes en __init__.
+        """
+        if self._chain is not None:
+            return
+
+        retriever = await get_retriever(k=3)
+
+        self._chain = (
             {
                 "context": retriever | format_docs,
                 "caso_clinico": RunnablePassthrough(),
             }
-            | prompt
-            | llm
-            | parser
+            | self._prompt
+            | self._llm
+            | self._parser
         )
 
     async def run(self, caso_clinico: str) -> AgentOutput:
+        # Construir la chain si aún no fue creada
+        await self._ensure_chain()
+
         # Pasamos el string directamente — el retriever lo necesita para buscar
-        return await self.chain.ainvoke(caso_clinico)
+        result = await self._chain.ainvoke(caso_clinico)
+
+        # Asignación determinista — no dependemos del LLM para saber quién somos
+        result.agent_name = self.NAME
+        return result

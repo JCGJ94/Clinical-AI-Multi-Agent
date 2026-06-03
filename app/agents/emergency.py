@@ -9,6 +9,8 @@ Activación (según routing-rules.md):
 SIEMPRE se activa antes que cualquier otro agente cuando hay riesgo vital.
 """
 
+from typing import ClassVar
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -50,33 +52,46 @@ class EmergencyAgent(BaseAgent):
     Mismo patrón RAG que ClinicalAgent.
     Diferencias:
       - System prompt enfocado en urgencias y ABCDE
-      - agent_name = "EmergencyAgent" en el output
+      - NAME = "EmergencyAgent" — asignado determinísticamente en run()
       - Activa red_flags agresivamente ante cualquier señal de riesgo vital
     """
 
-    def __init__(self) -> None:
-        parser = PydanticOutputParser(pydantic_object=AgentOutput)
+    NAME: ClassVar[str] = "EmergencyAgent"
 
-        prompt = ChatPromptTemplate.from_messages([
+    def __init__(self) -> None:
+        self._parser = PydanticOutputParser(pydantic_object=AgentOutput)
+
+        self._prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
             ("human", "{caso_clinico}"),
-        ]).partial(format_instructions=parser.get_format_instructions())
+        ]).partial(format_instructions=self._parser.get_format_instructions())
 
         # temperature=0.1 — más bajo que ClinicalAgent — urgencias requiere más precisión
         # create_llm() centraliza la selección de proveedor (ver app/core/llm.py)
-        llm = create_llm(temperature=0.1)
+        self._llm = create_llm(temperature=0.1)
 
-        retriever = get_retriever(k=3)
+        # Chain lazy — se construye en _ensure_chain() al primer run()
+        self._chain = None
 
-        self.chain = (
+    async def _ensure_chain(self) -> None:
+        """Construye la chain RAG en la primera llamada a run()."""
+        if self._chain is not None:
+            return
+
+        retriever = await get_retriever(k=3)
+
+        self._chain = (
             {
                 "context": retriever | format_docs,
                 "caso_clinico": RunnablePassthrough(),
             }
-            | prompt
-            | llm
-            | parser
+            | self._prompt
+            | self._llm
+            | self._parser
         )
 
     async def run(self, caso_clinico: str) -> AgentOutput:
-        return await self.chain.ainvoke(caso_clinico)
+        await self._ensure_chain()
+        result = await self._chain.ainvoke(caso_clinico)
+        result.agent_name = self.NAME
+        return result
