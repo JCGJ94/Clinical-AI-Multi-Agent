@@ -27,7 +27,7 @@ Tests de _combine_results (función pura):
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.integrator import Integrator, _combine_results
+from app.services.integrator import Integrator, _combine_results, _dedup_strings
 from app.models.clinical import AgentOutput, AnalyzeOutput, NivelUrgencia
 
 
@@ -57,11 +57,19 @@ def test_combine_picks_highest_confidence_summary():
 
 def test_combine_merges_all_findings():
     """findings es la unión de todos los agentes."""
-    a = make_agent_output("AgentA", confidence=0.7)
-    b = make_agent_output("AgentB", confidence=0.8)
+    a = AgentOutput(
+        agent_name="AgentA", summary="s", confidence=0.7, context_sources=[],
+        findings=["taquicardia ventricular", "edema pulmonar"],
+        red_flags=[], recommendations=[],
+    )
+    b = AgentOutput(
+        agent_name="AgentB", summary="s", confidence=0.8, context_sources=[],
+        findings=["hipoglucemia severa", "insuficiencia renal aguda"],
+        red_flags=[], recommendations=[],
+    )
     result = _combine_results([a, b])
-    assert "hallazgo-AgentA-1" in result.findings
-    assert "hallazgo-AgentB-1" in result.findings
+    assert "taquicardia ventricular" in result.findings
+    assert "hipoglucemia severa" in result.findings
 
 
 def test_combine_deduplicates_findings():
@@ -327,3 +335,47 @@ async def test_integrator_full_specialist_pipeline():
     assert len(result.agentes_activados) == 3
     assert len(result.agent_outputs) == 3
     assert isinstance(result.confidence, float)
+
+
+# ─── Tests de _dedup_strings (fuzzy dedup — Fase findings-dedup) ───────────────
+
+def test_dedup_word_order_variant():
+    """Word-order variants collapse to the first occurrence."""
+    items = ["dolor torácico opresivo", "opresivo dolor torácico"]
+    result = _dedup_strings(items)
+    assert len(result) == 1
+    assert result == ["dolor torácico opresivo"]
+
+
+def test_dedup_preserves_near_distinct_medical_terms():
+    """Near-distinct medical terms (below threshold) are both kept."""
+    items = ["fibrilación auricular", "flutter auricular"]
+    result = _dedup_strings(items)
+    assert len(result) == 2
+    assert "fibrilación auricular" in result
+    assert "flutter auricular" in result
+
+
+def test_red_flags_near_duplicate_passes_through():
+    """Near-duplicate red_flags from two agents are both preserved (exact dedup only)."""
+    output_a = AgentOutput(
+        agent_name="AgentA",
+        summary="summary a",
+        findings=[],
+        red_flags=["IAM con supra ST"],
+        recommendations=[],
+        confidence=0.8,
+        context_sources=[],
+    )
+    output_b = AgentOutput(
+        agent_name="AgentB",
+        summary="summary b",
+        findings=[],
+        red_flags=["IAM con BRIHH nuevo"],
+        recommendations=[],
+        confidence=0.75,
+        context_sources=[],
+    )
+    combined = _combine_results([output_a, output_b])
+    assert "IAM con supra ST" in combined.red_flags
+    assert "IAM con BRIHH nuevo" in combined.red_flags

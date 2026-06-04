@@ -72,6 +72,7 @@ Timeout por agente:
 import asyncio
 import logging
 import time
+from rapidfuzz import fuzz
 from app.agents.clinical import ClinicalAgent
 from app.agents.emergency import EmergencyAgent
 from app.agents.diagnosis import DifferentialDiagnosisAgent
@@ -86,6 +87,22 @@ from app.core.exceptions import AgentExecutionError, AllAgentsFailedError, LLMPr
 from app.core.logging import get_logger
 
 logger: logging.Logger = get_logger(__name__)
+
+DEDUP_THRESHOLD: float = 0.88
+
+
+def _dedup_strings(items: list[str], threshold: float = DEDUP_THRESHOLD) -> list[str]:
+    """Greedy keep-first fuzzy dedup. Compare on normalized form, emit original."""
+    kept: list[str] = []
+    for candidate in items:
+        normalized = candidate.lower().strip()
+        if not any(
+            fuzz.token_sort_ratio(normalized, k.lower().strip()) >= threshold * 100
+            for k in kept
+        ):
+            kept.append(candidate)
+    return kept
+
 
 # Timeout en segundos por agente.
 # 90 segundos para modelos grandes como Kimi K2.6 via Nvidia NIM.
@@ -130,9 +147,9 @@ def _combine_results(results: list[AgentOutput]) -> AnalyzeOutput:
     """
     best = max(results, key=lambda r: r.confidence)
 
-    all_findings = list(dict.fromkeys(f for r in results for f in r.findings))
+    all_findings = _dedup_strings([f for r in results for f in r.findings])
     all_red_flags = list(dict.fromkeys(f for r in results for f in r.red_flags))
-    all_recs = list(dict.fromkeys(f for r in results for f in r.recommendations))
+    all_recs = _dedup_strings([f for r in results for f in r.recommendations])
     avg_confidence = sum(r.confidence for r in results) / len(results)
 
     return AnalyzeOutput(
