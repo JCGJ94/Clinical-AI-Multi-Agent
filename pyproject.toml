@@ -29,6 +29,7 @@ dependencies = [
     # NVIDIAEmbeddings maneja el protocolo específico de Nvidia NIM
     # (input_type, formato de input como string no array) que OpenAIEmbeddings no soporta.
     "langchain-nvidia-ai-endpoints>=0.3.0",
+    "rapidfuzz>=3.0.0",
 ]
 
 [project.optional-dependencies]
